@@ -1,0 +1,6 @@
+{
+  "name": "AgroISP Pro - Gestão & Billing MikroTik",
+  "description": "Sistema completo de gestão ISP e faturamento para provedores de internet rádio e fibra com automação MikroTik RouterOS, cobranças Pix/Boleto e baixa automática.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

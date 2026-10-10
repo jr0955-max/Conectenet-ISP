@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  agroisp-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agroisp-billing
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MIKROTIK_HOST=192.168.88.1
+      - MIKROTIK_PORT=8728
+      - MIKROTIK_USER=admin_isp
+      - MIKROTIK_PASSWORD=sua_senha_mikrotik_aqui
+      - MIKROTIK_BLOCK_PROFILE=bloqueados
+      - ASAAS_API_KEY=seu_token_asaas_aqui
+      - MERCADOPAGO_ACCESS_TOKEN=seu_token_mp_aqui
+      - PIX_KEY=28491029000183
+      - PIX_KEY_TYPE=cnpj
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/stats"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - isp_network
+
+networks:
+  isp_network:
+    driver: bridge

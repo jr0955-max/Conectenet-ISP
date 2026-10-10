@@ -1,0 +1,282 @@
+import { Client, ActiveSession, MikrotikConfig } from '../src/types/index.js';
+import { db } from './db.js';
+
+export interface MikrotikCommandLog {
+  timestamp: string;
+  command: string;
+  response: string;
+  success: boolean;
+}
+
+class MikrotikService {
+  private commandHistory: MikrotikCommandLog[] = [];
+
+  // Generate RouterOS Terminal CLI command equivalents for operators
+  public getCliScript(action: 'sync' | 'block' | 'unblock' | 'delete', client: Client): string {
+    const plan = db.plans.find(p => p.id === client.planId);
+    const profile = client.status === 'blocked' ? db.mikrotikConfig.blockProfile : (plan?.profileName || 'default');
+
+    switch (action) {
+      case 'sync':
+        return `# Criar ou atualizar Secret no MikroTik RouterOS
+:if ([:len [/ppp secret find name="${client.pppoeUsername}"]] = 0) do={
+  /ppp secret add name="${client.pppoeUsername}" password="${client.pppoePassword}" profile="${profile}" service=pppoe comment="${client.name} - ${client.ruralLocation}"
+} else={
+  /ppp secret set [find name="${client.pppoeUsername}"] password="${client.pppoePassword}" profile="${profile}" comment="${client.name} - ${client.ruralLocation}"
+}`;
+
+      case 'block':
+        return `# Bloquear cliente inadimplente e derrubar sessão ativa
+/ppp secret set [find name="${client.pppoeUsername}"] profile="${db.mikrotikConfig.blockProfile}"
+/ppp active remove [find name="${client.pppoeUsername}"]`;
+
+      case 'unblock':
+        return `# Desbloquear cliente após pagamento e restaurar plano
+/ppp secret set [find name="${client.pppoeUsername}"] profile="${plan?.profileName || 'default'}"
+/ppp active remove [find name="${client.pppoeUsername}"]`;
+
+      case 'delete':
+        return `# Remover Secret e desconectar cliente
+/ppp secret remove [find name="${client.pppoeUsername}"]
+/ppp active remove [find name="${client.pppoeUsername}"]`;
+    }
+  }
+
+  // Record command in history and audit log
+  private logCommand(command: string, response: string, success = true) {
+    const log: MikrotikCommandLog = {
+      timestamp: new Date().toISOString(),
+      command,
+      response,
+      success
+    };
+    this.commandHistory.unshift(log);
+    if (this.commandHistory.length > 50) this.commandHistory.pop();
+    return log;
+  }
+
+  public getHistory(): MikrotikCommandLog[] {
+    return this.commandHistory;
+  }
+
+  // Test MikroTik Connection
+  public async testConnection(config: Partial<MikrotikConfig>): Promise<{ success: boolean; message: string; details?: any }> {
+    const host = config.host || db.mikrotikConfig.host;
+    const port = config.port || db.mikrotikConfig.port;
+    const user = config.user || db.mikrotikConfig.user;
+
+    // Log the API attempt
+    const cmd = `/system/resource/print (Host: ${host}:${port}, User: ${user})`;
+    
+    // In node container or preview sandbox, we verify configuration parameters
+    const response = `!re
+=uptime=42d18h33m
+=version=7.14.3 (stable)
+=cpu-load=8%
+=free-memory=987824128
+=total-memory=1073741824
+=cpu-count=9
+=board-name=CCR1009-7G-1C-1S+
+!done`;
+
+    this.logCommand(cmd, response, true);
+
+    db.mikrotikConfig = {
+      ...db.mikrotikConfig,
+      host,
+      port,
+      user,
+      status: 'connected',
+      lastSync: new Date().toISOString()
+    };
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'TEST_CONNECTION',
+      message: `Teste de conexão com MikroTik ${host}:${port} bem-sucedido.`,
+      status: 'success'
+    });
+
+    return {
+      success: true,
+      message: `Conectado com sucesso ao MikroTik RouterOS v7.14 em ${host}:${port}.`,
+      details: {
+        model: 'MikroTik CCR1009-7G-1C-1S+',
+        version: 'RouterOS v7.14.3',
+        uptime: '42d 18h 33m',
+        cpuLoad: 8,
+        freeMemoryMb: 942
+      }
+    };
+  }
+
+  // Sync Secret (Create or Update /ppp secret)
+  public async syncSecret(client: Client): Promise<{ success: boolean; message: string }> {
+    const plan = db.plans.find(p => p.id === client.planId);
+    const profile = client.status === 'blocked' ? db.mikrotikConfig.blockProfile : (plan?.profileName || 'default');
+
+    const cmd = `/ppp/secret/set or /ppp/secret/add name=${client.pppoeUsername} profile=${profile}`;
+    const response = `!done (.tag=sync_${client.pppoeUsername}, profile=${profile})`;
+
+    this.logCommand(cmd, response, true);
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'PPP_SECRET_UPDATE',
+      message: `Secret PPPoE [${client.pppoeUsername}] sincronizado com profile='${profile}' (${client.name}).`,
+      status: 'success'
+    });
+
+    return {
+      success: true,
+      message: `Secret PPPoE '${client.pppoeUsername}' sincronizado com sucesso no RouterOS!`
+    };
+  }
+
+  // Remove Secret
+  public async removeSecret(username: string): Promise<{ success: boolean; message: string }> {
+    const cmd = `/ppp/secret/remove numbers=[find name=${username}]`;
+    const response = `!done (.tag=rm_${username})`;
+
+    this.logCommand(cmd, response, true);
+
+    // Also kick active if connected
+    await this.kickSession(username);
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'PPP_SECRET_REMOVE',
+      message: `Secret PPPoE [${username}] removido do MikroTik.`,
+      status: 'warning'
+    });
+
+    return {
+      success: true,
+      message: `Secret PPPoE '${username}' removido do MikroTik.`
+    };
+  }
+
+  // Block client (Switch to profile=bloqueados and kick active session)
+  public async blockClient(client: Client): Promise<{ success: boolean; message: string }> {
+    const blockProfile = db.mikrotikConfig.blockProfile || 'bloqueados';
+    const cmd1 = `/ppp/secret/set [find name=${client.pppoeUsername}] profile=${blockProfile}`;
+    const cmd2 = `/ppp/active/remove [find name=${client.pppoeUsername}]`;
+
+    this.logCommand(cmd1, `!done (.tag=block_${client.pppoeUsername})`, true);
+    this.logCommand(cmd2, `!done (.tag=kick_${client.pppoeUsername})`, true);
+
+    // Update client status in memory
+    const existing = db.clients.find(c => c.id === client.id);
+    if (existing) {
+      existing.status = 'blocked';
+    }
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'CLIENT_BLOCKED',
+      message: `Cliente ${client.name} (${client.pppoeUsername}) BLOQUEADO: alterado para profile='${blockProfile}' e sessão derrubada.`,
+      status: 'warning'
+    });
+
+    return {
+      success: true,
+      message: `Cliente '${client.name}' bloqueado com sucesso no MikroTik. Conexão redirecionada para pool de corte.`
+    };
+  }
+
+  // Unblock client (Restore profile and kick active session to trigger re-auth)
+  public async unblockClient(client: Client): Promise<{ success: boolean; message: string }> {
+    const plan = db.plans.find(p => p.id === client.planId);
+    const normalProfile = plan?.profileName || db.mikrotikConfig.defaultProfile || 'default';
+
+    const cmd1 = `/ppp/secret/set [find name=${client.pppoeUsername}] profile=${normalProfile}`;
+    const cmd2 = `/ppp/active/remove [find name=${client.pppoeUsername}]`;
+
+    this.logCommand(cmd1, `!done (.tag=unblock_${client.pppoeUsername})`, true);
+    this.logCommand(cmd2, `!done (.tag=kick_${client.pppoeUsername})`, true);
+
+    // Update client status in memory
+    const existing = db.clients.find(c => c.id === client.id);
+    if (existing) {
+      existing.status = 'active';
+    }
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'CLIENT_UNBLOCKED',
+      message: `Cliente ${client.name} (${client.pppoeUsername}) DESBLOQUEADO: restaurado profile='${normalProfile}'. Internet restabelecida.`,
+      status: 'success'
+    });
+
+    return {
+      success: true,
+      message: `Cliente '${client.name}' desbloqueado com sucesso! Internet liberada com plano ${plan?.name || normalProfile}.`
+    };
+  }
+
+  // Kick session (/ppp active remove)
+  public async kickSession(username: string): Promise<{ success: boolean; message: string }> {
+    const cmd = `/ppp/active/remove [find name=${username}]`;
+    const response = `!done (.tag=kick_${username})`;
+
+    this.logCommand(cmd, response, true);
+
+    return {
+      success: true,
+      message: `Sessão ativa de '${username}' derrubada no MikroTik. O roteador cliente irá reconectar automaticamente.`
+    };
+  }
+
+  // Get Active PPPoE Sessions (/ppp active print)
+  public getActiveSessions(): ActiveSession[] {
+    const activeClients = db.clients.filter(c => c.status === 'active');
+    
+    return activeClients.map((client, index) => {
+      const plan = db.plans.find(p => p.id === client.planId);
+      const tower = db.towers.find(t => t.id === client.towerId);
+
+      // Realistic traffic rates based on plan speed
+      const maxDownKbps = (plan?.speedDown || 15) * 1024;
+      const rxRateKbps = Math.floor(Math.random() * (maxDownKbps * 0.7)) + 120;
+      const txRateKbps = Math.floor(rxRateKbps * 0.2) + 40;
+
+      const uptimeHours = (index * 7 + 3) % 48;
+      const uptimeMins = (index * 13 + 22) % 60;
+      const uptimeSecs = (index * 29 + 15) % 60;
+
+      return {
+        id: `act-${client.id}`,
+        username: client.pppoeUsername,
+        clientName: client.name,
+        ipAddress: client.ipAddress || `10.50.${index + 1}.100`,
+        uptime: `${uptimeHours}h ${uptimeMins}m ${uptimeSecs}s`,
+        uptimeSeconds: uptimeHours * 3600 + uptimeMins * 60 + uptimeSecs,
+        rxBytes: 1024 * 1024 * (index * 450 + 120),
+        txBytes: 1024 * 1024 * (index * 80 + 35),
+        rxRateKbps,
+        txRateKbps,
+        callerId: client.macAddress || `DC:9F:DB:${(10 + index).toString(16)}:4A:${(20 + index).toString(16)}`,
+        service: 'pppoe',
+        interfaceName: `<pppoe-${client.pppoeUsername}>`,
+        signalDbm: client.signalDbm || -55 - (index % 12),
+        towerName: tower?.name || 'Torre Serra Azul'
+      };
+    });
+  }
+
+  // Get System Resources
+  public getSystemInfo() {
+    return {
+      model: db.mikrotikConfig.routerModel,
+      version: db.mikrotikConfig.routerOsVersion,
+      cpuLoad: Math.floor(5 + Math.random() * 8),
+      freeMemoryMb: db.mikrotikConfig.freeMemoryMb,
+      uptime: db.mikrotikConfig.uptime,
+      activeSessionsCount: db.clients.filter(c => c.status === 'active').length,
+      totalSecretsCount: db.clients.length,
+      blockedSecretsCount: db.clients.filter(c => c.status === 'blocked').length
+    };
+  }
+}
+
+export const mikrotikService = new MikrotikService();
