@@ -29,8 +29,8 @@ const passwordResets = new Map<string, PasswordResetEntry>();
 export const initialUsers: User[] = [
   {
     id: 'user-admin',
-    name: 'Carlos Alberto (Diretor / Admin)',
-    email: 'admin@provedor.com.br',
+    name: 'Administrador Master',
+    email: 'jr0955@gmail.com',
     role: 'administrador',
     passwordHash: bcrypt.hashSync('admin123', 10),
     status: 'active',

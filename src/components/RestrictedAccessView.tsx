@@ -61,7 +61,7 @@ export const RestrictedAccessView: React.FC<RestrictedAccessViewProps> = ({
           className="w-full sm:w-auto px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-purple-950 flex items-center justify-center space-x-1.5"
         >
           <UserCheck className="w-4 h-4" />
-          <span>Alternar para Administrador (Demo)</span>
+          <span>Acessar como Administrador Master</span>
         </button>
 
         <button

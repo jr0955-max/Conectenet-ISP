@@ -29,12 +29,12 @@ app.post('/api/auth/login', (req, res) => {
 
     const cleanInput = email.toLowerCase().trim();
     
-    // Suporte flexível para admin, root, operador e e-mails
+    // Suporte prioritário para jr0955@gmail.com, jr0955, admin e outros operadores
     let user = db.users.find(u => {
       const uEmail = u.email.toLowerCase();
       return (
         uEmail === cleanInput ||
-        ((cleanInput === 'admin' || cleanInput === 'root' || cleanInput === 'administrador') && u.role === 'administrador') ||
+        ((cleanInput === 'jr0955@gmail.com' || cleanInput === 'jr0955' || cleanInput === 'admin' || cleanInput === 'root' || cleanInput === 'administrador') && u.role === 'administrador') ||
         (cleanInput.startsWith('admin@') && u.role === 'administrador') ||
         ((cleanInput === 'tecnico' || cleanInput === 'tec') && u.role === 'tecnico') ||
         (cleanInput.startsWith('tecnico@') && u.role === 'tecnico') ||
@@ -43,14 +43,14 @@ app.post('/api/auth/login', (req, res) => {
       );
     });
 
-    // Se ainda não encontrou e começou com admin, assume o administrador principal
-    if (!user && (cleanInput.includes('admin') || cleanInput.includes('root'))) {
+    // Se ainda não encontrou e digitou algo com jr0955 ou admin, assume o administrador principal
+    if (!user && (cleanInput.includes('jr0955') || cleanInput.includes('admin') || cleanInput.includes('root'))) {
       user = db.users.find(u => u.role === 'administrador');
     }
 
     if (!user) {
       return res.status(401).json({ 
-        error: 'Usuário não encontrado. Utilize "admin" ou "admin@provedor.com.br" com a senha "admin123" (ou "admin").' 
+        error: 'Usuário não encontrado. Utilize "jr0955@gmail.com" (ou admin) com a senha "admin123".' 
       });
     }
 
@@ -58,21 +58,21 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(403).json({ error: 'Sua conta de operador está inativa. Contate o administrador.' });
     }
 
-    // Validação de senha: hash bcrypt ou senhas padrões flexíveis de implantação/servidor
+    // Validação de senha: hash bcrypt ou senha de implantação admin123
     const isMasterAdmin = user.role === 'administrador';
     const isMasterTec = user.role === 'tecnico';
     const isMasterFin = user.role === 'financeiro';
 
     const isValidPassword = 
       (user.passwordHash && authService.comparePassword(password, user.passwordHash)) ||
-      (isMasterAdmin && (password === 'admin123' || password === 'admin' || password === '123456' || password === 'root')) ||
-      (isMasterTec && (password === 'tec123' || password === 'tecnico' || password === '123456')) ||
-      (isMasterFin && (password === 'fin123' || password === 'financeiro' || password === '123456'));
+      (isMasterAdmin && (password === 'admin123' || password === 'admin')) ||
+      (isMasterTec && (password === 'tec123' || password === 'tecnico')) ||
+      (isMasterFin && (password === 'fin123' || password === 'financeiro'));
 
     if (!isValidPassword) {
       return res.status(401).json({ 
         error: isMasterAdmin 
-          ? 'Senha incorreta. A senha padrão do usuário admin é "admin123" ou "admin".'
+          ? 'Senha incorreta. A senha para o usuário jr0955@gmail.com é "admin123".'
           : 'Senha incorreta. Verifique suas credenciais de acesso.' 
       });
     }
@@ -169,7 +169,7 @@ app.post('/api/auth/forgot-password', (req, res) => {
 
     res.json({
       success: true,
-      message: `Código de verificação enviado para ${user.email}. (Para fins de demonstração na bancada, use o código abaixo).`,
+      message: `Código de verificação gerado para ${user.email}. Utilize o código abaixo para redefinir sua senha:`,
       simulatedCode: code
     });
   } catch (err: any) {
@@ -527,7 +527,7 @@ app.post('/api/clients/import-batch', async (req, res) => {
   }
 });
 
-// Reset Bench Lab to Sample Demo Data
+// Reset Bench Lab to Sample Lab Data
 app.post('/api/bench/reset', (req, res) => {
   db.resetToSampleData();
   res.json({ success: true, message: 'Dados de bancada restaurados com sucesso!' });

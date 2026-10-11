@@ -9,13 +9,11 @@ import {
   Zap, 
   CheckCircle2, 
   AlertCircle, 
-  RefreshCw,
-  X,
-  Eye,
+  RefreshCw, 
+  X, 
+  Eye, 
   EyeOff,
-  UserCheck,
-  Wrench,
-  DollarSign
+  Crown
 } from 'lucide-react';
 import { User, UserRole, CompanySettings } from '../types/index.js';
 
@@ -41,11 +39,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Form Fields (Preenchidos com as credenciais padrão do servidor para facilitar)
-  const [email, setEmail] = useState('admin');
+  // Form Fields (Credenciais do Administrador Master)
+  const [email, setEmail] = useState('jr0955@gmail.com');
   const [password, setPassword] = useState('admin123');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<UserRole>('tecnico');
+  const [role, setRole] = useState<UserRole>('administrador');
 
   // Recovery Form
   const [resetStep, setResetStep] = useState<1 | 2>(1);
@@ -74,38 +72,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       onLoginSuccess(data.token, data.user, rememberMe);
     } catch (err: any) {
       setErrorMessage(err.message || 'Erro ao realizar login.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Quick Demo Login (Instant click for testing roles)
-  const handleQuickDemoLogin = async (demoRole: UserRole) => {
-    setErrorMessage('');
-    setLoading(true);
-
-    const demoCredentials: Record<UserRole, { email: string; pass: string }> = {
-      administrador: { email: 'admin@provedor.com.br', pass: 'admin123' },
-      tecnico: { email: 'tecnico@provedor.com.br', pass: 'tec123' },
-      financeiro: { email: 'financeiro@provedor.com.br', pass: 'fin123' }
-    };
-
-    const creds = demoCredentials[demoRole];
-    setEmail(creds.email);
-    setPassword(creds.pass);
-
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: creds.email, password: creds.pass })
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error);
-
-      onLoginSuccess(data.token, data.user, false);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Falha no login demo.');
     } finally {
       setLoading(false);
     }
@@ -288,35 +254,33 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         {/* TAB 1: LOGIN */}
         {tab === 'login' && (
           <div className="space-y-4">
-            {/* Banner de Credenciais Padrão do Servidor */}
-            <div className="p-3 bg-slate-950/90 border border-amber-500/30 rounded-2xl text-xs space-y-2">
+            {/* Banner de Credenciais Master do Administrador */}
+            <div className="p-3 bg-slate-950/90 border border-emerald-500/30 rounded-2xl text-xs space-y-2">
               <div className="flex items-center justify-between">
-                <span className="flex items-center space-x-1.5 text-amber-400 font-bold text-[11px] uppercase tracking-wider">
-                  <Key className="w-3.5 h-3.5" />
-                  <span>Credenciais Padrão do Servidor</span>
+                <span className="flex items-center space-x-1.5 text-emerald-400 font-bold text-[11px] uppercase tracking-wider">
+                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Administrador Master (Acesso Total)</span>
                 </span>
                 <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                  Pronto para entrar
+                  Todos os Privilégios
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px] pt-0.5">
                 <div 
-                  onClick={() => { setEmail('admin'); setPassword('admin123'); }}
+                  onClick={() => { setEmail('jr0955@gmail.com'); setPassword('admin123'); }}
                   className="bg-slate-900/90 hover:bg-slate-800/90 p-2 rounded-xl border border-slate-800 cursor-pointer transition"
                   title="Clique para preencher"
                 >
                   <span className="text-slate-400 block text-[10px]">Usuário:</span>
-                  <span className="text-white font-mono font-bold">admin</span>
-                  <span className="text-[9px] text-slate-500 block truncate">admin@provedor.com.br</span>
+                  <span className="text-white font-mono font-bold truncate block">jr0955@gmail.com</span>
                 </div>
                 <div 
-                  onClick={() => { setEmail('admin'); setPassword('admin123'); }}
+                  onClick={() => { setEmail('jr0955@gmail.com'); setPassword('admin123'); }}
                   className="bg-slate-900/90 hover:bg-slate-800/90 p-2 rounded-xl border border-slate-800 cursor-pointer transition"
                   title="Clique para preencher"
                 >
                   <span className="text-slate-400 block text-[10px]">Senha:</span>
-                  <span className="text-amber-300 font-mono font-bold">admin123</span>
-                  <span className="text-[9px] text-slate-500 block truncate">ou admin</span>
+                  <span className="text-emerald-300 font-mono font-bold">admin123</span>
                 </div>
               </div>
             </div>
@@ -331,7 +295,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin ou admin@provedor.com.br"
+                    placeholder="jr0955@gmail.com"
                     className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500 font-medium"
                   />
                 </div>
@@ -393,48 +357,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <span>{loading ? 'Autenticando JWT...' : 'Acessar Sistema'}</span>
               </button>
             </form>
-
-            {/* Quick Demo Credentials for Fast Testing */}
-            <div className="pt-3 border-t border-slate-800/80 space-y-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-center">
-                Atalhos Rápidos de Teste (1 Clique):
-              </span>
-
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('administrador')}
-                  className="p-2 rounded-xl bg-purple-950/40 hover:bg-purple-950/70 border border-purple-500/30 text-purple-300 text-center transition group"
-                  title="Acesso completo a todas as funções"
-                >
-                  <UserCheck className="w-4 h-4 mx-auto mb-1 text-purple-400 group-hover:scale-110 transition-transform" />
-                  <span className="text-[10px] font-bold block leading-tight">Admin</span>
-                  <span className="text-[9px] text-slate-400 block">Total</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('tecnico')}
-                  className="p-2 rounded-xl bg-cyan-950/40 hover:bg-cyan-950/70 border border-cyan-500/30 text-cyan-300 text-center transition group"
-                  title="Acesso a rede, PPPoE e MikroTik (Sem faturamento)"
-                >
-                  <Wrench className="w-4 h-4 mx-auto mb-1 text-cyan-400 group-hover:scale-110 transition-transform" />
-                  <span className="text-[10px] font-bold block leading-tight">Técnico</span>
-                  <span className="text-[9px] text-slate-400 block">RouterOS</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('financeiro')}
-                  className="p-2 rounded-xl bg-emerald-950/40 hover:bg-emerald-950/70 border border-emerald-500/30 text-emerald-300 text-center transition group"
-                  title="Acesso a Faturas, Pix e cobrança (Sem terminal MikroTik)"
-                >
-                  <DollarSign className="w-4 h-4 mx-auto mb-1 text-emerald-400 group-hover:scale-110 transition-transform" />
-                  <span className="text-[10px] font-bold block leading-tight">Financeiro</span>
-                  <span className="text-[9px] text-slate-400 block">Cobrança</span>
-                </button>
-              </div>
-            </div>
           </div>
         )}
 

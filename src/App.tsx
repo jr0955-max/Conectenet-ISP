@@ -241,13 +241,13 @@ export default function App() {
   const handleSwitchToAdmin = () => {
     const adminUser: User = {
       id: 'user-admin',
-      name: 'Carlos Alberto (Diretor / Admin)',
-      email: 'admin@provedor.com.br',
+      name: 'Administrador Master',
+      email: 'jr0955@gmail.com',
       role: 'administrador',
       status: 'active',
       createdAt: '2026-01-01'
     };
-    handleLoginSuccess('demo_admin_jwt_token', adminUser);
+    handleLoginSuccess('admin_master_jwt_token', adminUser);
   };
 
   const showNotification = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
