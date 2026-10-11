@@ -1,5 +1,144 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   THEME STYLES (MODO DIA & MODO NOITE)
+   ========================================================================== */
+
+/* Transições suaves ao alternar de tema */
+body, aside, header, main, footer, div, card {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+}
+
+/* Modo Dia (Fundo Claro / Branco Elegante & Alto Contraste) */
+:root[data-theme="light"],
+html.light,
+[data-theme="light"] {
+  color-scheme: light;
+  
+  /* Inversão dos tons Slate no Tailwind v4 */
+  --color-slate-950: #f8fafc; /* Fundo geral da página (off-white limpo) */
+  --color-slate-900: #ffffff; /* Fundo dos cards e painéis (branco puro) */
+  --color-slate-800: #f1f5f9; /* Sub-containers, tabelas e cabeçalhos */
+  --color-slate-700: #e2e8f0; /* Linhas de borda e divisores */
+  --color-slate-600: #cbd5e1; /* Bordas secundárias */
+  --color-slate-500: #64748b; /* Textos de apoio / legendas */
+  --color-slate-400: #475569; /* Textos secundários legíveis */
+  --color-slate-300: #334155; /* Texto corpo principal */
+  --color-slate-200: #1e293b; /* Texto de destaque escuro */
+  --color-slate-100: #0f172a; /* Títulos pretos e cabeçalhos */
+  --color-slate-50: #020617;
+}
+
+[data-theme="light"] body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Ajuste de títulos e textos claros em cards brancos no Modo Dia */
+[data-theme="light"] .text-white:not(.keep-text-white):not([class*="bg-emerald"]):not([class*="bg-red"]):not([class*="bg-blue"]):not([class*="bg-purple"]):not([class*="bg-indigo"]):not([class*="bg-green"]):not([class*="bg-cyan-6"]):not([class*="bg-gradient"]):not([class*="from-emerald"]):not([class*="from-blue"]):not([class*="from-purple"]):not([class*="from-red"]) {
+  color: #0f172a !important;
+}
+
+/* Cards e Superfícies com sombras suaves e bordas nítidas no Modo Dia */
+[data-theme="light"] .bg-slate-900 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.03);
+}
+
+[data-theme="light"] .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+[data-theme="light"] .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] header {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+}
+
+[data-theme="light"] aside {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 1px 0 3px 0 rgb(0 0 0 / 0.03);
+}
+
+[data-theme="light"] footer {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+/* Inputs, Selects e Textareas com fundo branco e contorno nítido */
+[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+[data-theme="light"] input:focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus {
+  border-color: #f59e0b !important;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25) !important;
+}
+
+/* Tabelas no Modo Dia */
+[data-theme="light"] thead tr {
+  background-color: #f1f5f9 !important;
+}
+
+[data-theme="light"] tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Backdrops de Modal no Modo Dia */
+[data-theme="light"] .fixed.inset-0.bg-slate-950\/85,
+[data-theme="light"] .fixed.inset-0.bg-slate-950\/60,
+[data-theme="light"] .fixed.inset-0.bg-slate-950 {
+  background-color: rgba(15, 23, 42, 0.5) !important;
+}
+
+/* Contraste aprimorado de cores de destaque no Modo Dia */
+[data-theme="light"] .text-amber-400 {
+  color: #d97706 !important;
+}
+
+[data-theme="light"] .text-emerald-400 {
+  color: #059669 !important;
+}
+
+[data-theme="light"] .text-cyan-400 {
+  color: #0891b2 !important;
+}
+
+[data-theme="light"] .text-sky-400,
+[data-theme="light"] .text-blue-400 {
+  color: #2563eb !important;
+}
+
+[data-theme="light"] .text-purple-400 {
+  color: #7c3aed !important;
+}
+
+/* Botões com gradiente Amber garantem texto escuro legível */
+[data-theme="light"] [class*="from-amber"],
+[data-theme="light"] .text-slate-950 {
+  color: #0f172a !important;
+}
+
 @layer utilities {
   @media print {
     body {
@@ -19,3 +158,4 @@
     }
   }
 }
+

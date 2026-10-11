@@ -531,42 +531,61 @@ class DatabaseStore {
   }
 
   private seedInvoices() {
-    // Generate current month invoices
+    // Generate realistic multi-month invoices (last 5 months + current month)
     const now = new Date();
-    const currentMonth = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+    
+    for (let m = 5; m >= 0; m--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      const targetMonthStr = `${String(targetDate.getMonth() + 1).padStart(2, '0')}/${targetDate.getFullYear()}`;
+      const isCurrentMonth = m === 0;
 
-    this.clients.forEach((client, idx) => {
-      const plan = this.plans.find(p => p.id === client.planId) || this.plans[0];
-      const isBlocked = client.status === 'blocked';
-      
-      const dueDate = new Date(now.getFullYear(), now.getMonth(), client.dueDay);
-      const isPast = dueDate < now;
+      this.clients.forEach((client, idx) => {
+        const plan = this.plans.find(p => p.id === client.planId) || this.plans[0];
+        const isBlocked = client.status === 'blocked';
+        const dueDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), client.dueDay);
 
-      const status = isBlocked ? 'atrasada' : (idx % 2 === 0 ? 'paga' : 'pendente');
-      const invoiceId = `FAT-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-${String(idx + 1).padStart(4, '0')}`;
+        let status: 'paga' | 'pendente' | 'atrasada';
+        let paymentDate: string | undefined;
 
-      // Realistic Pix EMV string format
-      const pixCopyPaste = `00020126580014br.gov.bcb.pix0136${this.gatewayConfig.pixKey}520400005303986540${plan.price.toFixed(2)}5802BR5925${this.gatewayConfig.beneficiaryName.slice(0, 25)}6008BRASILIA62070503***6304D1A4`;
-      const barcode = `23793.38128 60000.010204 12000.123456 1 ${Math.floor(9000 + Math.random() * 1000)}00000${Math.floor(plan.price * 100)}`;
+        if (isCurrentMonth) {
+          status = isBlocked ? 'atrasada' : (idx % 2 === 0 ? 'paga' : 'pendente');
+          if (status === 'paga') {
+            paymentDate = new Date(dueDate.getTime() - 86400000).toISOString().split('T')[0];
+          }
+        } else {
+          if (isBlocked && m === 1) {
+            status = 'atrasada';
+          } else {
+            status = 'paga';
+            paymentDate = new Date(dueDate.getTime() - 86400000).toISOString().split('T')[0];
+          }
+        }
 
-      this.invoices.push({
-        id: invoiceId,
-        clientId: client.id,
-        clientName: client.name,
-        clientDocument: client.document,
-        clientPhone: client.phone,
-        planName: plan.name,
-        amount: plan.price,
-        dueDate: dueDate.toISOString().split('T')[0],
-        status,
-        barcode,
-        pixCopyPaste,
-        paymentDate: status === 'paga' ? new Date(dueDate.getTime() - 2 * 86400000).toISOString().split('T')[0] : undefined,
-        gateway: 'asaas',
-        referenceMonth: currentMonth,
-        createdAt: new Date().toISOString()
+        const invoiceId = `FAT-${targetDate.getFullYear()}${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(idx + 1).padStart(4, '0')}`;
+
+        // Realistic Pix EMV string format
+        const pixCopyPaste = `00020126580014br.gov.bcb.pix0136${this.gatewayConfig.pixKey}520400005303986540${plan.price.toFixed(2)}5802BR5925${this.gatewayConfig.beneficiaryName.slice(0, 25)}6008BRASILIA62070503***6304D1A4`;
+        const barcode = `23793.38128 60000.010204 12000.123456 1 ${Math.floor(9000 + Math.random() * 1000)}00000${Math.floor(plan.price * 100)}`;
+
+        this.invoices.push({
+          id: invoiceId,
+          clientId: client.id,
+          clientName: client.name,
+          clientDocument: client.document,
+          clientPhone: client.phone,
+          planName: plan.name,
+          amount: plan.price,
+          dueDate: dueDate.toISOString().split('T')[0],
+          status,
+          barcode,
+          pixCopyPaste,
+          paymentDate,
+          gateway: 'asaas',
+          referenceMonth: targetMonthStr,
+          createdAt: new Date(targetDate.getFullYear(), targetDate.getMonth(), 1).toISOString()
+        });
       });
-    });
+    }
   }
 
   private seedAuditLogs() {
@@ -698,15 +717,19 @@ class DatabaseStore {
     const blockedClients = this.clients.filter(c => c.status === 'blocked').length;
     const pendingClients = this.clients.filter(c => c.status === 'pending' || c.status === 'cancelled').length;
 
-    const monthlyRevenue = this.invoices
+    const now = new Date();
+    const currentMonth = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+    const currentMonthInvoices = this.invoices.filter(i => !i.referenceMonth || i.referenceMonth === currentMonth);
+
+    const monthlyRevenue = currentMonthInvoices
       .filter(i => i.status === 'paga')
       .reduce((sum, i) => sum + i.amount, 0);
 
-    const pendingRevenue = this.invoices
+    const pendingRevenue = currentMonthInvoices
       .filter(i => i.status === 'pendente')
       .reduce((sum, i) => sum + i.amount, 0);
 
-    const overdueRevenue = this.invoices
+    const overdueRevenue = currentMonthInvoices
       .filter(i => i.status === 'atrasada')
       .reduce((sum, i) => sum + i.amount, 0);
 

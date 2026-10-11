@@ -16,6 +16,8 @@ import {
   Crown
 } from 'lucide-react';
 import { User, UserRole, CompanySettings } from '../types/index.js';
+import { ThemeToggle } from './ThemeToggle.js';
+
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -160,15 +162,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   return (
     <div className={`fixed inset-0 z-50 ${isEnforced ? 'bg-slate-950' : 'bg-slate-950/85 backdrop-blur-md'} flex items-center justify-center p-4 overflow-y-auto`}>
       <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl space-y-6 relative my-auto">
-        {/* Close Button only if not enforced */}
-        {!isEnforced && (
-          <button
-            onClick={onClose}
-            className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        )}
+        {/* Top Controls: Theme Toggle & Close */}
+        <div className="absolute top-5 right-5 flex items-center space-x-2">
+          <ThemeToggle variant="icon-only" />
+          {!isEnforced && (
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-white p-1 rounded-lg"
+              title="Fechar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
 
         {/* Brand Header */}
         <div className="text-center space-y-2">

@@ -29,9 +29,14 @@ import {
   Headphones,
   Hexagon,
   Layers,
-  Building2
+  Building2,
+  Sun,
+  Moon,
+  Palette
 } from 'lucide-react';
 import { MikrotikConfig, SystemStats, User, CompanySettings } from '../types/index.js';
+import { useTheme } from '../context/ThemeContext.js';
+
 
 interface SidebarProps {
   activeTab: string;
@@ -71,6 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isTecnico = currentUser?.role === 'tecnico';
   const isFinanceiro = currentUser?.role === 'financeiro';
   const isAdmin = currentUser?.role === 'administrador';
+  const { theme, toggleTheme } = useTheme();
 
   // Manage open/collapsed state of accordion menu sections
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -383,7 +389,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }`}
                   >
                     <span>Ordens de Serviço</span>
-                    <span className="px-1.5 py-0.2 text-[10px] font-mono rounded bg-amber-500/20 text-amber-300">
+                    <span className="px-1.5 py-0.2 text-[10px] font-mono rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                       {stats?.openTickets || '3'} abertas
                     </span>
                   </button>
@@ -519,6 +525,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <span>Auditoria & Logs</span>
                   </button>
+
+                  {/* Aparência: Modo Dia e Noite no menu Configurações */}
+                  <div className="pt-1 mt-1 border-t border-slate-800/60">
+                    <button
+                      onClick={toggleTheme}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition group"
+                      title={theme === 'light' ? 'Mudar para Modo Noite (Escuro)' : 'Mudar para Modo Dia (Claro)'}
+                    >
+                      <span className="flex items-center space-x-2">
+                        {theme === 'light' ? (
+                          <Sun className="w-3.5 h-3.5 text-amber-500" />
+                        ) : (
+                          <Moon className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        <span>Aparência</span>
+                      </span>
+                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md flex items-center space-x-1 ${
+                        theme === 'light' 
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                          : 'bg-slate-800 text-slate-300 border border-slate-700'
+                      }`}>
+                        <span>{theme === 'light' ? '☀️ Dia' : '🌙 Noite'}</span>
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

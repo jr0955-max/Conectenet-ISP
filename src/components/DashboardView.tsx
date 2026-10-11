@@ -24,6 +24,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { SystemStats, Client, Invoice, Tower, MikrotikConfig, ServiceOrder, CompanySettings } from '../types/index.js';
+import { RevenueProjectionChart } from './RevenueProjectionChart.js';
 
 interface DashboardViewProps {
   stats: SystemStats | null;
@@ -272,6 +273,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Monthly Projected Revenue Chart (Recharts) */}
+      <RevenueProjectionChart
+        invoices={invoices}
+        clients={clients}
+        stats={stats}
+        onNavigateFinance={() => onNavigateTab('finance')}
+      />
 
       {/* Middle Row: MikroTik RouterOS Monitor & Recent Service Orders */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -26,6 +26,8 @@ import {
   Building2
 } from 'lucide-react';
 import { MikrotikConfig, SystemStats, User, CompanySettings } from '../types/index.js';
+import { ThemeToggle } from './ThemeToggle.js';
+
 
 interface TopBarProps {
   activeTab: string;
@@ -249,6 +251,9 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           <RefreshCw className="w-4 h-4" />
         </button>
+
+        {/* Botão Dia e Noite (Light / Dark Mode) */}
+        <ThemeToggle variant="button" />
 
         {/* User Profile Header Dropdown */}
         <div className="relative">

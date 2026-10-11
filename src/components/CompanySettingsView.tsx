@@ -18,10 +18,14 @@ import {
   QrCode,
   ShieldCheck,
   Zap,
-  Check
+  Check,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { CompanySettings, MikrotikConfig } from '../types/index.js';
 import { SystemBackupCard } from './SystemBackupCard.js';
+import { ThemeToggle } from './ThemeToggle.js';
+
 
 interface CompanySettingsViewProps {
   settings: CompanySettings;
@@ -264,6 +268,26 @@ export const CompanySettingsView: React.FC<CompanySettingsViewProps> = ({
               <span className="text-[9px] text-slate-500 block font-mono">{formData.bankCode}</span>
               <span className="text-[10px] font-bold text-emerald-700">R$ 89,90</span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 0: Tema e Cores (Modo Dia e Noite) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg">
+              <Sun className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Aparência do Sistema • Modo Dia & Modo Noite</h3>
+              <p className="text-xs text-slate-400">
+                Alterne entre fundo branco/claro de alto contraste ou tema escuro moderno. Salvo automaticamente no seu navegador.
+              </p>
+            </div>
+          </div>
+          <div className="w-full sm:w-64">
+            <ThemeToggle variant="segmented" />
           </div>
         </div>
       </div>
