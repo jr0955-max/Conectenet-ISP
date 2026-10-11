@@ -22,7 +22,6 @@ import {
   Crown,
   Wrench,
   DollarSign,
-  Plus,
   Gauge,
   FileText,
   Package,
@@ -165,20 +164,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
             >
               <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Quick Add Client Button */}
-          <div className="px-3.5 pt-3.5 space-y-2">
-            <button
-              onClick={() => {
-                onOpenNewClient();
-                onCloseMobile();
-              }}
-              className="w-full flex items-center justify-center space-x-2 py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 via-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 font-bold text-xs shadow-md shadow-amber-950/30 transition group"
-            >
-              <Plus className="w-4 h-4 text-slate-950 group-hover:rotate-90 transition-transform" />
-              <span>Novo Cliente</span>
             </button>
           </div>
 
@@ -534,17 +519,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <span>Auditoria & Logs</span>
                   </button>
-
-                  <button
-                    onClick={() => handleTabClick('deploy')}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                      activeTab === 'deploy'
-                        ? 'bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <span>Deploy & Servidor</span>
-                  </button>
                 </div>
               )}
             </div>
@@ -579,7 +553,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* User Profile & Role Card */}
           {currentUser ? (
-            <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+            <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2 min-w-0">
                   <div className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
@@ -603,6 +577,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
+
+              <button
+                onClick={onLogout}
+                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-300 hover:text-red-100 rounded-lg text-[11px] font-bold transition"
+                title="Encerrar sessão e bloquear acesso ao sistema"
+              >
+                <LogOut className="w-3 h-3 text-red-400" />
+                <span>Sair e Bloquear Sistema</span>
+              </button>
             </div>
           ) : (
             <button

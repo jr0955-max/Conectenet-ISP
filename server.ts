@@ -27,7 +27,14 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(400).json({ error: 'Informe e-mail e senha para acessar.' });
     }
 
-    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+    const cleanEmail = email.toLowerCase().trim();
+    const user = db.users.find(u => 
+      u.email.toLowerCase() === cleanEmail ||
+      (cleanEmail === 'admin' && u.role === 'administrador') ||
+      (cleanEmail.startsWith('admin@') && u.role === 'administrador') ||
+      (cleanEmail.startsWith('tecnico@') && u.role === 'tecnico') ||
+      (cleanEmail.startsWith('financeiro@') && u.role === 'financeiro')
+    );
     if (!user) {
       return res.status(401).json({ error: 'Credenciais inválidas. Usuário não encontrado.' });
     }

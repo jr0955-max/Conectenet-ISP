@@ -30,7 +30,7 @@ export const initialUsers: User[] = [
   {
     id: 'user-admin',
     name: 'Carlos Alberto (Diretor / Admin)',
-    email: 'admin@agroisp.com.br',
+    email: 'admin@provedor.com.br',
     role: 'administrador',
     passwordHash: bcrypt.hashSync('admin123', 10),
     status: 'active',
@@ -40,7 +40,7 @@ export const initialUsers: User[] = [
   {
     id: 'user-tecnico',
     name: 'Lucas Mendes (Técnico de Redes / NOC)',
-    email: 'tecnico@agroisp.com.br',
+    email: 'tecnico@provedor.com.br',
     role: 'tecnico',
     passwordHash: bcrypt.hashSync('tec123', 10),
     status: 'active',
@@ -50,7 +50,7 @@ export const initialUsers: User[] = [
   {
     id: 'user-financeiro',
     name: 'Juliana Rocha (Gestão Financeira & Cobrança)',
-    email: 'financeiro@agroisp.com.br',
+    email: 'financeiro@provedor.com.br',
     role: 'financeiro',
     passwordHash: bcrypt.hashSync('fin123', 10),
     status: 'active',

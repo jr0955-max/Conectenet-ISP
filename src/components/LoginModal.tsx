@@ -17,21 +17,26 @@ import {
   Wrench,
   DollarSign
 } from 'lucide-react';
-import { User, UserRole } from '../types/index.js';
+import { User, UserRole, CompanySettings } from '../types/index.js';
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess: (token: string, user: User) => void;
+  onLoginSuccess: (token: string, user: User, rememberMe?: boolean) => void;
+  isEnforced?: boolean;
+  companySettings?: CompanySettings;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
   isOpen,
   onClose,
-  onLoginSuccess
+  onLoginSuccess,
+  isEnforced = false,
+  companySettings
 }) => {
   const [tab, setTab] = useState<'login' | 'register' | 'forgot'>('login');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -66,7 +71,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Falha ao autenticar.');
 
-      onLoginSuccess(data.token, data.user);
+      onLoginSuccess(data.token, data.user, rememberMe);
     } catch (err: any) {
       setErrorMessage(err.message || 'Erro ao realizar login.');
     } finally {
@@ -80,9 +85,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setLoading(true);
 
     const demoCredentials: Record<UserRole, { email: string; pass: string }> = {
-      administrador: { email: 'admin@agroisp.com.br', pass: 'admin123' },
-      tecnico: { email: 'tecnico@agroisp.com.br', pass: 'tec123' },
-      financeiro: { email: 'financeiro@agroisp.com.br', pass: 'fin123' }
+      administrador: { email: 'admin@provedor.com.br', pass: 'admin123' },
+      tecnico: { email: 'tecnico@provedor.com.br', pass: 'tec123' },
+      financeiro: { email: 'financeiro@provedor.com.br', pass: 'fin123' }
     };
 
     const creds = demoCredentials[demoRole];
@@ -98,7 +103,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error);
 
-      onLoginSuccess(data.token, data.user);
+      onLoginSuccess(data.token, data.user, false);
     } catch (err: any) {
       setErrorMessage(err.message || 'Falha no login demo.');
     } finally {
@@ -187,27 +192,49 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl space-y-6 relative">
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg"
-        >
-          <X className="w-5 h-5" />
-        </button>
+    <div className={`fixed inset-0 z-50 ${isEnforced ? 'bg-slate-950' : 'bg-slate-950/85 backdrop-blur-md'} flex items-center justify-center p-4 overflow-y-auto`}>
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl space-y-6 relative my-auto">
+        {/* Close Button only if not enforced */}
+        {!isEnforced && (
+          <button
+            onClick={onClose}
+            className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 p-0.5 mx-auto shadow-lg shadow-emerald-500/20">
-            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-              <ShieldCheck className="w-6 h-6 text-emerald-400" />
+          {companySettings?.logoUrl ? (
+            <div className="flex items-center justify-center py-1">
+              <img 
+                src={companySettings.logoUrl} 
+                alt={companySettings.name} 
+                className="max-h-14 max-w-[220px] object-contain drop-shadow" 
+              />
             </div>
-          </div>
-          <h2 className="text-xl font-bold text-white tracking-tight">AgroISP Pro</h2>
+          ) : (
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 p-0.5 mx-auto shadow-lg shadow-emerald-500/20">
+              <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
+                <ShieldCheck className="w-6 h-6 text-emerald-400" />
+              </div>
+            </div>
+          )}
+
+          <h2 className="text-xl font-bold text-white tracking-tight">
+            {companySettings?.name || 'Sistema de Gestão ISP'}
+          </h2>
           <p className="text-xs text-slate-400">
-            Autenticação Segura & Gestão de Acessos com JWT
+            {companySettings?.slogan || 'Autenticação Segura & Gestão de Acessos com JWT'}
           </p>
+
+          {isEnforced && (
+            <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-950 border border-slate-800 text-[11px] text-amber-400 font-medium">
+              <Lock className="w-3 h-3 text-amber-400" />
+              <span>Acesso Restrito: Identifique-se para entrar</span>
+            </div>
+          )}
         </div>
 
         {/* Tabs Switcher */}
@@ -306,6 +333,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+              </div>
+
+              {/* Checkbox Manter Conectado */}
+              <div className="pt-0.5 pb-1">
+                <label className="flex items-center space-x-2 text-slate-400 hover:text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0 accent-emerald-500 cursor-pointer"
+                  />
+                  <span className="text-[11px]">Manter conectado neste computador</span>
+                </label>
+                <p className="text-[10px] text-slate-500 pl-6">
+                  Se desmarcado, ao fechar a aba/navegador sua sessão é encerrada por segurança.
+                </p>
               </div>
 
               <button

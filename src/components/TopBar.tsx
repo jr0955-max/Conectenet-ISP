@@ -253,21 +253,32 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* User Profile Header Dropdown */}
         <div className="relative">
           {currentUser ? (
-            <div 
-              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="flex items-center space-x-2 pl-2 cursor-pointer group"
-            >
-              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-xs group-hover:border-amber-400 transition">
-                {currentUser.name.charAt(0).toUpperCase()}
+            <div className="flex items-center space-x-2">
+              <div 
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="flex items-center space-x-2 pl-2 cursor-pointer group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-xs group-hover:border-amber-400 transition">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="hidden md:block text-left">
+                  <p className="text-xs font-bold text-white leading-tight truncate max-w-[120px]">
+                    {currentUser.name.split(' ')[0]}
+                  </p>
+                  <span className="text-[10px] text-amber-400 capitalize block leading-tight">
+                    {currentUser.role}
+                  </span>
+                </div>
               </div>
-              <div className="hidden md:block text-left">
-                <p className="text-xs font-bold text-white leading-tight truncate max-w-[120px]">
-                  {currentUser.name.split(' ')[0]}
-                </p>
-                <span className="text-[10px] text-amber-400 capitalize block leading-tight">
-                  {currentUser.role}
-                </span>
-              </div>
+
+              <button
+                onClick={onLogout}
+                className="hidden sm:flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-red-950/60 border border-slate-700/60 hover:border-red-500/40 text-slate-300 hover:text-red-300 text-xs font-semibold transition"
+                title="Sair do sistema e bloquear tela"
+              >
+                <LogOut className="w-3.5 h-3.5 text-red-400" />
+                <span className="text-[11px]">Sair</span>
+              </button>
             </div>
           ) : (
             <button

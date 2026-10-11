@@ -102,22 +102,14 @@ export default function App() {
 
   // Authentication & Session State
   const [authToken, setAuthToken] = useState<string | null>(() => {
-    return localStorage.getItem('agroisp_jwt_token') || 'demo_admin_jwt_token';
+    return sessionStorage.getItem('isp_jwt_token') || localStorage.getItem('isp_jwt_token') || localStorage.getItem('agroisp_jwt_token');
   });
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('agroisp_user');
+    const saved = sessionStorage.getItem('isp_user') || localStorage.getItem('isp_user') || localStorage.getItem('agroisp_user');
     if (saved) {
       try { return JSON.parse(saved); } catch {}
     }
-    // Default initial admin operator
-    return {
-      id: 'user-admin',
-      name: 'Carlos Alberto (Diretor / Admin)',
-      email: 'admin@agroisp.com.br',
-      role: 'administrador',
-      status: 'active',
-      createdAt: '2026-01-01'
-    };
+    return null;
   });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -213,28 +205,44 @@ export default function App() {
     }
   };
 
-  const handleLoginSuccess = (token: string, user: User) => {
+  const handleLoginSuccess = (token: string, user: User, rememberMe: boolean = false) => {
     setAuthToken(token);
     setCurrentUser(user);
-    localStorage.setItem('agroisp_jwt_token', token);
-    localStorage.setItem('agroisp_user', JSON.stringify(user));
+    if (rememberMe) {
+      localStorage.setItem('isp_jwt_token', token);
+      localStorage.setItem('isp_user', JSON.stringify(user));
+      sessionStorage.removeItem('isp_jwt_token');
+      sessionStorage.removeItem('isp_user');
+    } else {
+      sessionStorage.setItem('isp_jwt_token', token);
+      sessionStorage.setItem('isp_user', JSON.stringify(user));
+      localStorage.removeItem('isp_jwt_token');
+      localStorage.removeItem('isp_user');
+    }
+    localStorage.removeItem('agroisp_jwt_token');
+    localStorage.removeItem('agroisp_user');
     setIsLoginModalOpen(false);
+    loadAllData();
     showNotification(`Bem-vindo, ${user.name}! Perfil [${user.role.toUpperCase()}] ativo.`);
   };
 
   const handleLogout = () => {
     setAuthToken(null);
     setCurrentUser(null);
+    sessionStorage.clear();
+    localStorage.removeItem('isp_jwt_token');
+    localStorage.removeItem('isp_user');
     localStorage.removeItem('agroisp_jwt_token');
     localStorage.removeItem('agroisp_user');
-    showNotification('Sessão encerrada com sucesso.', 'info');
+    setIsSidebarOpenMobile(false);
+    showNotification('Sessão encerrada com sucesso! O sistema foi fechado e bloqueado.', 'info');
   };
 
   const handleSwitchToAdmin = () => {
     const adminUser: User = {
       id: 'user-admin',
       name: 'Carlos Alberto (Diretor / Admin)',
-      email: 'admin@agroisp.com.br',
+      email: 'admin@provedor.com.br',
       role: 'administrador',
       status: 'active',
       createdAt: '2026-01-01'
@@ -533,6 +541,41 @@ export default function App() {
         if (res.invoice) setSelectedInvoice(res.invoice);
       });
   };
+
+  // Se o operador não estiver autenticado (ou após clicar em 'Sair'), fecha todo o sistema e bloqueia o acesso
+  if (!currentUser || !authToken) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center relative overflow-hidden select-none">
+        {/* Glows de ambientação visual */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-10 left-10 w-72 h-72 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Global Notification */}
+        {notification && (
+          <div className="fixed top-5 right-5 z-50 max-w-md animate-bounce">
+            <div className={`px-4 py-3 rounded-xl border shadow-2xl text-xs font-semibold flex items-center space-x-2 ${
+              notification.type === 'success'
+                ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
+                : notification.type === 'info'
+                ? 'bg-amber-950/95 border-amber-500/50 text-amber-200'
+                : 'bg-red-950/95 border-red-500/50 text-red-200'
+            }`}>
+              <span>{notification.message}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Tela de Login Fechada e Obrigatória */}
+        <LoginModal
+          isOpen={true}
+          isEnforced={true}
+          onClose={() => {}}
+          onLoginSuccess={handleLoginSuccess}
+          companySettings={companySettings}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -890,8 +933,10 @@ export default function App() {
       {/* Login / Register / Forgot Password Modal */}
       <LoginModal
         isOpen={isLoginModalOpen}
+        isEnforced={false}
         onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
+        companySettings={companySettings}
       />
     </div>
   );
