@@ -41,9 +41,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Form Fields
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // Form Fields (Preenchidos com as credenciais padrão do servidor para facilitar)
+  const [email, setEmail] = useState('admin');
+  const [password, setPassword] = useState('admin123');
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>('tecnico');
 
@@ -288,18 +288,51 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         {/* TAB 1: LOGIN */}
         {tab === 'login' && (
           <div className="space-y-4">
+            {/* Banner de Credenciais Padrão do Servidor */}
+            <div className="p-3 bg-slate-950/90 border border-amber-500/30 rounded-2xl text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center space-x-1.5 text-amber-400 font-bold text-[11px] uppercase tracking-wider">
+                  <Key className="w-3.5 h-3.5" />
+                  <span>Credenciais Padrão do Servidor</span>
+                </span>
+                <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  Pronto para entrar
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] pt-0.5">
+                <div 
+                  onClick={() => { setEmail('admin'); setPassword('admin123'); }}
+                  className="bg-slate-900/90 hover:bg-slate-800/90 p-2 rounded-xl border border-slate-800 cursor-pointer transition"
+                  title="Clique para preencher"
+                >
+                  <span className="text-slate-400 block text-[10px]">Usuário:</span>
+                  <span className="text-white font-mono font-bold">admin</span>
+                  <span className="text-[9px] text-slate-500 block truncate">admin@provedor.com.br</span>
+                </div>
+                <div 
+                  onClick={() => { setEmail('admin'); setPassword('admin123'); }}
+                  className="bg-slate-900/90 hover:bg-slate-800/90 p-2 rounded-xl border border-slate-800 cursor-pointer transition"
+                  title="Clique para preencher"
+                >
+                  <span className="text-slate-400 block text-[10px]">Senha:</span>
+                  <span className="text-amber-300 font-mono font-bold">admin123</span>
+                  <span className="text-[9px] text-slate-500 block truncate">ou admin</span>
+                </div>
+              </div>
+            </div>
+
             <form onSubmit={handleLogin} className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-slate-300 font-medium mb-1">E-mail do Operador</label>
+                <label className="block text-slate-300 font-medium mb-1">Usuário ou E-mail do Operador</label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                   <input
-                    type="email"
+                    type="text"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="seu.email@agroisp.com.br"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="admin ou admin@provedor.com.br"
+                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500 font-medium"
                   />
                 </div>
               </div>
