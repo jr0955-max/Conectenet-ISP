@@ -1,4 +1,4 @@
-import { Client, Plan, Tower, Invoice, MikrotikConfig, GatewayConfig, AuditLog, SystemStats, User, ServiceOrder, Contract, Equipment, FiscalInvoice, CompanySettings } from '../src/types/index.js';
+import { Client, Plan, Tower, Invoice, MikrotikConfig, GatewayConfig, AuditLog, SystemStats, User, ServiceOrder, Contract, Equipment, FiscalInvoice, CompanySettings, Carne } from '../src/types/index.js';
 import { initialUsers } from './auth.js';
 
 // Planos do Provedor de Internet (Fibra Óptica & Rádio Wireless)
@@ -524,9 +524,11 @@ class DatabaseStore {
   public gatewayConfig: GatewayConfig = { ...initialGatewayConfig };
   public companySettings: CompanySettings = { ...initialCompanySettings };
   public auditLogs: AuditLog[] = [];
+  public carnes: Carne[] = [];
 
   constructor() {
     this.seedInvoices();
+    this.seedCarnes();
     this.seedAuditLogs();
   }
 
@@ -586,6 +588,44 @@ class DatabaseStore {
         });
       });
     }
+  }
+
+  private seedCarnes() {
+    const seedList = [
+      { id: '9358841', clientIdx: 0, status: 'em dia' as const, paid: 0, date: '10/10/26 20:11' },
+      { id: '9358661', clientIdx: 1, status: 'em dia' as const, paid: 1, date: '10/10/26 19:49' },
+      { id: '9356161', clientIdx: 2, status: 'em dia' as const, paid: 0, date: '10/10/26 10:50' },
+      { id: '9264301', clientIdx: 3, status: 'em atraso' as const, paid: 1, date: '02/10/26 20:03' },
+      { id: '9264201', clientIdx: 4, status: 'em dia' as const, paid: 1, date: '02/10/26 19:54' },
+      { id: '9214981', clientIdx: 5, status: 'em dia' as const, paid: 1, date: '29/09/26 21:13' },
+      { id: '9214961', clientIdx: 6, status: 'em dia' as const, paid: 1, date: '29/09/26 21:12' },
+      { id: '9214921', clientIdx: 0, status: 'em dia' as const, paid: 1, date: '29/09/26 21:10' },
+      { id: '9214861', clientIdx: 1, status: 'em dia' as const, paid: 0, date: '29/09/26 21:07' },
+      { id: '9090681', clientIdx: 2, status: 'em atraso' as const, paid: 0, date: '17/09/26 20:53' },
+      { id: '9090181', clientIdx: 3, status: 'em dia' as const, paid: 1, date: '17/09/26 20:26' },
+      { id: '9033861', clientIdx: 4, status: 'em dia' as const, paid: 1, date: '12/09/26 20:39' },
+    ];
+
+    seedList.forEach((item) => {
+      const client = this.clients[item.clientIdx % this.clients.length] || this.clients[0];
+      const plan = this.plans.find(p => p.id === client.planId) || this.plans[0];
+
+      this.carnes.push({
+        id: item.id,
+        clientId: client.id,
+        clientName: client.name,
+        clientDocument: client.document,
+        clientEmail: client.email,
+        gateway: 'Galax Pay',
+        status: item.status,
+        totalInstallments: 12,
+        paidInstallments: item.paid,
+        firstDueDate: `2026-10-${String(client.dueDay || 10).padStart(2, '0')}`,
+        installmentAmount: plan.price,
+        description: 'Mensalidade de Internet - Carnê',
+        createdAt: item.date
+      });
+    });
   }
 
   private seedAuditLogs() {

@@ -782,7 +782,7 @@ export default function App() {
             )
           )}
 
-          {activeTab === 'finance' && (
+          {(activeTab === 'finance' || activeTab === 'charges' || activeTab === 'carnes') && (
             currentUser?.role === 'tecnico' ? (
               <RestrictedAccessView
                 requiredRoles={['administrador', 'financeiro']}
@@ -801,6 +801,9 @@ export default function App() {
                 onOpenNewInvoice={handleOpenNewInvoice}
                 onSimulateWebhook={handleSimulateWebhook}
                 onPayInvoiceDirectly={handlePayInvoice}
+                initialSubTab={activeTab === 'charges' ? 'charges' : activeTab === 'carnes' ? 'carnes' : 'invoices'}
+                companySettings={companySettings}
+                onRefresh={loadAllData}
               />
             )
           )}

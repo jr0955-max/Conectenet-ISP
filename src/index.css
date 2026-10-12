@@ -141,11 +141,15 @@ html.light,
 
 @layer utilities {
   @media print {
+    @page {
+      size: A4 portrait;
+      margin: 6mm 6mm 6mm 6mm;
+    }
     body {
       background-color: #ffffff !important;
       color: #000000 !important;
     }
-    .no-print {
+    aside, header, nav, .no-print, .print\:hidden {
       display: none !important;
     }
     .printable-boleto {
@@ -155,6 +159,22 @@ html.light,
       padding: 0 !important;
       width: 100% !important;
       max-width: 100% !important;
+    }
+    .a4-sheet {
+      page-break-after: always !important;
+      break-after: page !important;
+      box-sizing: border-box !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      background: #ffffff !important;
+    }
+    .a4-sheet:last-child {
+      page-break-after: auto !important;
+      break-after: auto !important;
+    }
+    .carnet-item {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
   }
 }

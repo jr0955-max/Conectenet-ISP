@@ -5,7 +5,7 @@ import { db } from './server/db.js';
 import { mikrotikService } from './server/mikrotik.js';
 import { paymentGatewayService } from './server/paymentGateway.js';
 import { authService, authenticateToken, authorizeRole, AuthenticatedRequest } from './server/auth.js';
-import { Client, Plan, Invoice, User, UserRole } from './src/types/index.js';
+import { Client, Plan, Invoice, User, UserRole, Carne } from './src/types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -601,7 +601,18 @@ app.get('/api/invoices', (req, res) => {
 
 app.post('/api/invoices', async (req, res) => {
   try {
-    const { clientId, amount, dueDate, referenceMonth } = req.body;
+    const { 
+      clientId, 
+      amount, 
+      dueDate, 
+      referenceMonth, 
+      status = 'pendente', 
+      description, 
+      fineAmount = 0, 
+      interestAmount = 0,
+      installment
+    } = req.body;
+
     const client = db.clients.find(c => c.id === clientId);
     if (!client) {
       return res.status(400).json({ error: 'Cliente inválido' });
@@ -614,6 +625,7 @@ app.post('/api/invoices', async (req, res) => {
     const { pixCopyPaste, qrCodeDataUrl } = await paymentGatewayService.generatePixPayload(invoiceId, finalAmount, client.name);
     const barcode = paymentGatewayService.generateBarcode(finalAmount);
 
+    const isPaid = status === 'paga';
     const newInvoice: Invoice = {
       id: invoiceId,
       clientId: client.id,
@@ -622,18 +634,268 @@ app.post('/api/invoices', async (req, res) => {
       clientPhone: client.phone,
       planName: plan.name,
       amount: finalAmount,
-      dueDate: dueDate || new Date(now.getFullYear(), now.getMonth(), client.dueDay).toISOString().split('T')[0],
-      status: 'pendente',
+      dueDate: dueDate || new Date(now.getFullYear(), now.getMonth(), client.dueDay || 10).toISOString().split('T')[0],
+      status: isPaid ? 'paga' : (status as any),
       barcode,
       pixCopyPaste,
       qrCodeDataUrl,
+      paymentDate: isPaid ? new Date().toISOString().split('T')[0] : undefined,
       gateway: db.gatewayConfig.provider,
       referenceMonth: referenceMonth || `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      installment: installment || undefined,
+      description: description || undefined,
+      fineAmount: Number(fineAmount) || 0,
+      interestAmount: Number(interestAmount) || 0,
+      clientAddress: client.address
     };
 
     db.invoices.unshift(newInvoice);
+
+    // Se a cobrança já foi registrada como Paga na hora (ex: no balcão do provedor)
+    if (isPaid && client.status === 'blocked') {
+      await mikrotikService.unblockClient(client);
+      db.addAuditLog({
+        type: 'payment',
+        action: 'PAYMENT_RECEIVED',
+        message: `Cobrança [${invoiceId}] baixada no balcão para [${client.name}]. Desbloqueio MikroTik efetuado.`,
+        status: 'success'
+      });
+    }
+
     res.status(201).json({ invoice: newInvoice });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Batch generation of Carnê (e.g. 12 installments)
+app.post('/api/invoices/carne-batch', async (req, res) => {
+  try {
+    const { 
+      clientId, 
+      installmentsCount = 12, 
+      startMonth, 
+      dueDay, 
+      installmentAmount 
+    } = req.body;
+
+    const client = db.clients.find(c => c.id === clientId);
+    if (!client) {
+      return res.status(400).json({ error: 'Cliente inválido' });
+    }
+    const plan = db.plans.find(p => p.id === client.planId) || db.plans[0];
+    const unitAmount = Number(installmentAmount) || plan.price;
+    const count = Math.max(1, Math.min(36, Number(installmentsCount) || 12));
+    const day = Number(dueDay) || client.dueDay || 10;
+
+    let startYear = new Date().getFullYear();
+    let startMonthNum = new Date().getMonth() + 1;
+
+    if (startMonth && typeof startMonth === 'string' && startMonth.includes('/')) {
+      const parts = startMonth.split('/');
+      startMonthNum = parseInt(parts[0], 10) || startMonthNum;
+      startYear = parseInt(parts[1], 10) || startYear;
+    }
+
+    const createdInvoices: Invoice[] = [];
+    const now = new Date();
+
+    for (let i = 1; i <= count; i++) {
+      const targetDate = new Date(startYear, (startMonthNum - 1) + (i - 1), 1);
+      const mStr = String(targetDate.getMonth() + 1).padStart(2, '0');
+      const yStr = String(targetDate.getFullYear());
+      const refMonth = `${mStr}/${yStr}`;
+
+      // Clamp day to valid days in that month (e.g. Feb 28/29)
+      const lastDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+      const actualDay = Math.min(day, lastDayOfMonth);
+      const dueDateStr = `${yStr}-${mStr}-${String(actualDay).padStart(2, '0')}`;
+
+      const invoiceId = `CARNE-${yStr}${mStr}-${String(db.invoices.length + createdInvoices.length + 1).padStart(4, '0')}`;
+      const { pixCopyPaste, qrCodeDataUrl } = await paymentGatewayService.generatePixPayload(invoiceId, unitAmount, client.name);
+      const barcode = paymentGatewayService.generateBarcode(unitAmount);
+
+      const installmentLabel = `${i}/${count}`;
+
+      const invoice: Invoice = {
+        id: invoiceId,
+        clientId: client.id,
+        clientName: client.name,
+        clientDocument: client.document,
+        clientPhone: client.phone,
+        planName: plan.name,
+        amount: unitAmount,
+        dueDate: dueDateStr,
+        status: 'pendente',
+        barcode,
+        pixCopyPaste,
+        qrCodeDataUrl,
+        gateway: db.gatewayConfig.provider,
+        referenceMonth: refMonth,
+        createdAt: now.toISOString(),
+        installment: installmentLabel,
+        description: `Carnê de Mensalidade ${installmentLabel} - Ref: ${refMonth}`,
+        clientAddress: client.address
+      };
+
+      createdInvoices.push(invoice);
+    }
+
+    // Insert all into db.invoices
+    createdInvoices.forEach(inv => db.invoices.unshift(inv));
+
+    db.addAuditLog({
+      type: 'payment',
+      action: 'CARNE_GENERATED',
+      message: `Carnê de ${count} parcelas gerado para [${client.name}] (${unitAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/mês).`,
+      status: 'success'
+    });
+
+    res.status(201).json({ 
+      success: true, 
+      count: createdInvoices.length, 
+      invoices: createdInvoices 
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao gerar carnê' });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// CARNÊS DE MENSALIDADE
+// -----------------------------------------------------------------------------
+app.get('/api/carnes', (req, res) => {
+  res.json({ carnes: db.carnes });
+});
+
+app.post('/api/carnes', async (req, res) => {
+  try {
+    const { 
+      clientId, 
+      firstDueDate, 
+      installmentsCount = 12, 
+      description = 'Mensalidade de Internet - Carnê',
+      installmentAmount
+    } = req.body;
+
+    const client = db.clients.find(c => c.id === clientId);
+    if (!client) {
+      return res.status(400).json({ error: 'Cliente não encontrado' });
+    }
+
+    const plan = db.plans.find(p => p.id === client.planId) || db.plans[0];
+    const unitPrice = Number(installmentAmount) || plan.price;
+    const count = Math.max(1, Math.min(60, Number(installmentsCount) || 12));
+
+    const carneId = `${Math.floor(9000000 + Math.random() * 999999)}`;
+    const now = new Date();
+    const createdStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getFullYear()).slice(-2)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const newCarne: Carne = {
+      id: carneId,
+      clientId: client.id,
+      clientName: client.name,
+      clientDocument: client.document,
+      clientEmail: client.email,
+      gateway: 'Galax Pay',
+      status: 'em dia',
+      totalInstallments: count,
+      paidInstallments: 0,
+      firstDueDate: firstDueDate || now.toISOString().split('T')[0],
+      installmentAmount: unitPrice,
+      description: description || 'Mensalidade de Internet - Carnê',
+      createdAt: createdStr
+    };
+
+    // Parse starting date
+    let startDate = new Date();
+    if (firstDueDate) {
+      const parts = firstDueDate.split('-');
+      if (parts.length === 3) {
+        startDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      }
+    }
+
+    const createdInvoices: Invoice[] = [];
+
+    for (let i = 1; i <= count; i++) {
+      const targetDate = new Date(startDate.getFullYear(), startDate.getMonth() + (i - 1), startDate.getDate());
+      const mStr = String(targetDate.getMonth() + 1).padStart(2, '0');
+      const yStr = String(targetDate.getFullYear());
+      const refMonth = `${mStr}/${yStr}`;
+      const dueDateStr = targetDate.toISOString().split('T')[0];
+
+      const invoiceId = `CARNE-${carneId}-${String(i).padStart(2, '0')}`;
+      const { pixCopyPaste, qrCodeDataUrl } = await paymentGatewayService.generatePixPayload(invoiceId, unitPrice, client.name);
+      const barcode = paymentGatewayService.generateBarcode(unitPrice);
+      const installmentLabel = `${i}/${count}`;
+
+      const inv: Invoice = {
+        id: invoiceId,
+        clientId: client.id,
+        clientName: client.name,
+        clientDocument: client.document,
+        clientPhone: client.phone,
+        planName: plan.name,
+        amount: unitPrice,
+        dueDate: dueDateStr,
+        status: 'pendente',
+        barcode,
+        pixCopyPaste,
+        qrCodeDataUrl,
+        gateway: 'asaas',
+        referenceMonth: refMonth,
+        createdAt: now.toISOString(),
+        installment: installmentLabel,
+        description: `${description} (${installmentLabel})`,
+        clientAddress: client.address,
+        carneId: carneId
+      };
+
+      createdInvoices.push(inv);
+    }
+
+    // Add invoices to db
+    createdInvoices.forEach(inv => db.invoices.unshift(inv));
+    db.carnes.unshift(newCarne);
+
+    db.addAuditLog({
+      type: 'payment',
+      action: 'CARNE_GENERATED',
+      message: `Novo Carnê [${carneId}] cadastrado com ${count} parcelas para [${client.name}].`,
+      status: 'success'
+    });
+
+    res.status(201).json({
+      success: true,
+      carne: newCarne,
+      invoices: createdInvoices
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao cadastrar carnê' });
+  }
+});
+
+app.delete('/api/carnes/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const index = db.carnes.findIndex(c => c.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Carnê não encontrado' });
+    }
+    const [deleted] = db.carnes.splice(index, 1);
+    // Also remove associated invoices
+    db.invoices = db.invoices.filter(inv => inv.carneId !== id);
+
+    db.addAuditLog({
+      type: 'payment',
+      action: 'CARNE_DELETED',
+      message: `Carnê [${id}] de [${deleted.clientName}] excluído com sucesso.`,
+      status: 'warning'
+    });
+
+    res.json({ success: true, message: 'Carnê excluído com sucesso' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

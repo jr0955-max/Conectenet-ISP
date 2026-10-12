@@ -85,6 +85,10 @@ export const TopBar: React.FC<TopBarProps> = ({
         return { section: 'Atendimento & O.S.', title: 'Ordens de Serviço & Chamados Técnicos' };
       case 'finance':
         return { section: 'Financeiro', title: 'Faturamento, Mensalidades & Pix Dinâmico' };
+      case 'charges':
+        return { section: 'Financeiro', title: 'Cobranças Avulsas & Regularização de Mês em Atraso' };
+      case 'carnes':
+        return { section: 'Financeiro', title: 'Carnês de Mensalidade (Impressão 3 por Folha A4)' };
       case 'fiscal':
         return { section: 'Fiscal', title: 'Notas Fiscais de Telecomunicações (Mod 21/22)' };
       case 'inventory':

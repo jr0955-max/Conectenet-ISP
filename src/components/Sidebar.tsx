@@ -314,12 +314,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                     }`}
                   >
-                    <span>Faturas & Pix / Boletos</span>
+                    <span>Faturas & Recebimentos</span>
                     {isTecnico && (
                       <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-amber-500/20 text-amber-300">
                         Restrito
                       </span>
                     )}
+                  </button>
+
+                  <button
+                    onClick={() => handleTabClick('charges')}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                      activeTab === 'charges'
+                        ? 'bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <span>Cobranças</span>
+                    <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-amber-500/20 text-amber-300">
+                      Avulsa
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => handleTabClick('carnes')}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                      activeTab === 'carnes'
+                        ? 'bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <span>Carnês</span>
+                    <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-emerald-500/20 text-emerald-300">
+                      12x
+                    </span>
                   </button>
                 </div>
               )}

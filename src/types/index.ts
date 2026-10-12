@@ -77,6 +77,28 @@ export interface Invoice {
   gateway: 'asaas' | 'mercadopago' | 'efi';
   referenceMonth: string; // e.g. "10/2026"
   createdAt: string;
+  installment?: string; // e.g. "01/12", "02/12"
+  description?: string; // e.g. "Cobrança avulsa referente a mês em atraso"
+  fineAmount?: number;
+  interestAmount?: number;
+  clientAddress?: string;
+  carneId?: string;
+}
+
+export interface Carne {
+  id: string; // e.g. "9358841"
+  clientId: string;
+  clientName: string;
+  clientDocument: string;
+  clientEmail?: string;
+  gateway: string; // e.g. "Galax Pay" | "Asaas"
+  status: 'em dia' | 'em atraso';
+  totalInstallments: number; // e.g. 12
+  paidInstallments: number; // e.g. 1
+  firstDueDate: string; // YYYY-MM-DD
+  installmentAmount: number;
+  description: string;
+  createdAt: string; // e.g. "10/10/26 20:11"
 }
 
 export interface ActiveSession {
