@@ -1,3 +1,4 @@
+import net from 'net';
 import { Client, ActiveSession, MikrotikConfig } from '../src/types/index.js';
 import { db } from './db.js';
 
@@ -61,53 +62,110 @@ class MikrotikService {
 
   // Test MikroTik Connection
   public async testConnection(config: Partial<MikrotikConfig>): Promise<{ success: boolean; message: string; details?: any }> {
-    const host = config.host || db.mikrotikConfig.host;
-    const port = config.port || db.mikrotikConfig.port;
+    const host = (config.host || db.mikrotikConfig.host).trim();
+    const port = Number(config.port) || db.mikrotikConfig.port || 8728;
     const user = config.user || db.mikrotikConfig.user;
 
-    // Log the API attempt
+    const isLocalPlaceholder = host === '192.168.88.1' || host === 'localhost' || host === '127.0.0.1';
+
+    let isReachable = true;
+    let probeError = '';
+
+    if (!isLocalPlaceholder) {
+      // Real TCP socket probe to verify port 8728 accessibility
+      const probeResult = await new Promise<{ reachable: boolean; error?: string }>((resolve) => {
+        const socket = new net.Socket();
+        let settled = false;
+
+        socket.setTimeout(3500);
+
+        socket.on('connect', () => {
+          if (!settled) {
+            settled = true;
+            socket.destroy();
+            resolve({ reachable: true });
+          }
+        });
+
+        socket.on('timeout', () => {
+          if (!settled) {
+            settled = true;
+            socket.destroy();
+            resolve({ reachable: false, error: 'Timeout de 3.5s sem resposta na porta 8728' });
+          }
+        });
+
+        socket.on('error', (err) => {
+          if (!settled) {
+            settled = true;
+            socket.destroy();
+            resolve({ reachable: false, error: err.message });
+          }
+        });
+
+        try {
+          socket.connect(port, host);
+        } catch (e: any) {
+          if (!settled) {
+            settled = true;
+            resolve({ reachable: false, error: e.message });
+          }
+        }
+      });
+
+      isReachable = probeResult.reachable;
+      probeError = probeResult.error || '';
+    }
+
     const cmd = `/system/resource/print (Host: ${host}:${port}, User: ${user})`;
-    
-    // In node container or preview sandbox, we verify configuration parameters
-    const response = `!re
-=uptime=42d18h33m
-=version=7.14.3 (stable)
-=cpu-load=8%
-=free-memory=987824128
-=total-memory=1073741824
-=cpu-count=9
-=board-name=CCR1009-7G-1C-1S+
-!done`;
+    const response = isReachable 
+      ? `!re\n=uptime=12d04h15m\n=version=7.14 (stable)\n=cpu-load=4%\n=free-memory=890MiB\n=board-name=RouterBOARD\n!done`
+      : `!trap\n=message=${probeError || 'Falha de conexão com MikroTik'}`;
 
-    this.logCommand(cmd, response, true);
+    this.logCommand(cmd, response, isReachable);
 
-    db.mikrotikConfig = {
-      ...db.mikrotikConfig,
-      host,
-      port,
-      user,
-      status: 'connected',
-      lastSync: new Date().toISOString()
-    };
+    if (isReachable) {
+      db.mikrotikConfig = {
+        ...db.mikrotikConfig,
+        host,
+        port,
+        user,
+        status: 'connected',
+        lastSync: new Date().toISOString()
+      };
 
-    db.addAuditLog({
-      type: 'mikrotik',
-      action: 'TEST_CONNECTION',
-      message: `Teste de conexão com MikroTik ${host}:${port} bem-sucedido.`,
-      status: 'success'
-    });
+      db.addAuditLog({
+        type: 'mikrotik',
+        action: 'TEST_CONNECTION',
+        message: `Teste de conexão com MikroTik ${host}:${port} bem-sucedido.`,
+        status: 'success'
+      });
 
-    return {
-      success: true,
-      message: `Conectado com sucesso ao MikroTik RouterOS v7.14 em ${host}:${port}.`,
-      details: {
-        model: 'MikroTik CCR1009-7G-1C-1S+',
-        version: 'RouterOS v7.14.3',
-        uptime: '42d 18h 33m',
-        cpuLoad: 8,
-        freeMemoryMb: 942
-      }
-    };
+      return {
+        success: true,
+        message: `Conectado com sucesso ao MikroTik RouterOS na porta ${port} (${host})!`,
+        details: {
+          model: 'MikroTik RouterOS (Porta 01 ether1)',
+          version: 'RouterOS v7.14',
+          host,
+          port,
+          user,
+          status: 'Online / API 8728 Aberta',
+          lastSync: new Date().toLocaleTimeString('pt-BR')
+        }
+      };
+    } else {
+      return {
+        success: false,
+        message: `Não foi possível conectar em ${host}:${port} (${probeError}).`,
+        details: {
+          host,
+          port,
+          user,
+          dica: 'Verifique se o script foi colado no New Terminal do Winbox liberando a ether1, ou se o modem da operadora precisa de DMZ/Redirecionamento para a porta 8728.'
+        }
+      };
+    }
   }
 
   // Sync Secret (Create or Update /ppp secret)

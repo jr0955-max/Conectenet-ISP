@@ -527,10 +527,15 @@ app.post('/api/clients/import-batch', async (req, res) => {
   }
 });
 
-// Reset Bench Lab to Sample Lab Data
+// Limpar dados de teste e modelos
 app.post('/api/bench/reset', (req, res) => {
   db.resetToSampleData();
-  res.json({ success: true, message: 'Dados de bancada restaurados com sucesso!' });
+  res.json({ success: true, message: 'Dados de exemplo removidos com sucesso! Sistema limpo.' });
+});
+
+app.post('/api/clean-data', (req, res) => {
+  db.resetToSampleData();
+  res.json({ success: true, message: 'Dados de exemplo removidos com sucesso! Sistema limpo.' });
 });
 
 // Manual Block/Unblock toggle on MikroTik
@@ -1076,7 +1081,7 @@ app.get('/api/towers', (req, res) => res.json({ towers: db.towers }));
 app.get('/api/audit-logs', (req, res) => res.json({ logs: db.auditLogs }));
 
 // -----------------------------------------------------------------------------
-// 7. BEESWEB ISP MODULES (SERVICE ORDERS, CONTRACTS, INVENTORY, FISCAL)
+// 7. ISP MANAGEMENT MODULES (SERVICE ORDERS, CONTRACTS, INVENTORY, FISCAL)
 // -----------------------------------------------------------------------------
 app.get('/api/service-orders', (req, res) => {
   res.json({ serviceOrders: db.serviceOrders });

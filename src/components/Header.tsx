@@ -33,7 +33,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: 'LayoutDashboard' },
-    { id: 'bench', label: '🧪 Bancada & Lab', icon: 'FlaskConical', badge: 'Ativo' },
     { id: 'clients', label: 'Clientes & PPPoE', icon: 'Users', badge: stats?.totalClients },
     { id: 'mikrotik', label: 'MikroTik RouterOS', icon: 'Cpu', badge: stats?.onlineSessions },
     { id: 'finance', label: 'Financeiro & Pix', icon: 'Wallet' },
@@ -69,14 +68,14 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="hidden md:flex items-center space-x-4">
             {/* MikroTik Status Badge */}
             <div 
-              onClick={() => setActiveTab('bench')}
-              className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-xs cursor-pointer hover:bg-emerald-950/60 transition"
-              title="Ambiente de Bancada Seguro Ativo - Clique para ver o guia de configuração"
+              onClick={() => setActiveTab('mikrotik')}
+              className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-xs cursor-pointer hover:bg-cyan-950/60 transition"
+              title="MikroTik RouterOS Conectado na Bancada"
             >
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+              <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
               <div>
-                <span className="text-emerald-400 font-semibold">Bancada Lab: </span>
-                <span className="font-mono text-white font-medium">Ativo (Simulado)</span>
+                <span className="text-cyan-400 font-semibold">RouterOS: </span>
+                <span className="font-mono text-white font-medium">Conectado (API)</span>
               </div>
             </div>
 

@@ -146,7 +146,7 @@ export const RevenueProjectionChart: React.FC<RevenueProjectionChartProps> = ({
 
     const avgMonthlyPaid = pastPaidMonthsValues.length > 0
       ? pastPaidMonthsValues.reduce((a, b) => a + b, 0) / pastPaidMonthsValues.length
-      : (stats?.monthlyRevenue || 1200);
+      : (stats?.monthlyRevenue || 0);
 
     // Build timeline of months: past 5 months + current month + 2 future months
     const points: MonthlyDataPoint[] = [];
@@ -236,7 +236,7 @@ export const RevenueProjectionChart: React.FC<RevenueProjectionChartProps> = ({
     const totalFaturadoHistorico = historicalPoints.reduce((acc, p) => acc + p.totalFaturado, 0);
     const taxaLiquidacao = totalFaturadoHistorico > 0 
       ? Math.round((totalPago / totalFaturadoHistorico) * 100) 
-      : 94;
+      : 0;
 
     return {
       totalPago,

@@ -190,23 +190,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>Painel / Dashboard</span>
                 </div>
               </button>
-
-              <button
-                onClick={() => handleTabClick('bench')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all group ${
-                  activeTab === 'bench'
-                    ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <FlaskConical className={`w-4 h-4 ${activeTab === 'bench' ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-200'}`} />
-                  <span>Bancada & Lab</span>
-                </div>
-                <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  LAB
-                </span>
-              </button>
             </div>
 
             {/* CADASTROS ACCORDION */}
@@ -418,7 +401,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <span>Ordens de Serviço</span>
                     <span className="px-1.5 py-0.2 text-[10px] font-mono rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                      {stats?.openTickets || '3'} abertas
+                      {stats?.openTickets || 0} abertas
                     </span>
                   </button>
                 </div>

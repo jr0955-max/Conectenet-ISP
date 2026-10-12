@@ -12,7 +12,10 @@ import {
   AlertCircle,
   Plus,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Terminal,
+  Copy,
+  Check
 } from 'lucide-react';
 import { Client, Plan, Tower } from '../types/index.js';
 
@@ -51,6 +54,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState(false);
 
   const effectiveTowers = towers.length > 0 ? towers : [
     { id: 'tower-1', name: 'Torre Serra Azul (Principal)', location: 'Serra do Cruzeiro', frequency: '5.8 GHz', capacity: 120, activeClients: 42, status: 'online' as const, coordinates: '-15.78, -47.92', ipGateway: '10.50.1.1' },
@@ -210,23 +214,6 @@ export const ClientModal: React.FC<ClientModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Bench Quick Fill Helper */}
-        {!clientToEdit && (
-          <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-xs">
-            <div className="flex items-center space-x-2 text-slate-300">
-              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Fazendo teste de bancada no MikroTik?</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleFillSample}
-              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition shadow-sm shrink-0 flex items-center space-x-1"
-            >
-              <span>Preencher Exemplo</span>
-            </button>
-          </div>
-        )}
 
         {/* Validation Error Alert */}
         {validationError && (
@@ -460,6 +447,38 @@ export const ClientModal: React.FC<ClientModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* RouterOS CLI Live Preview */}
+          {pppoeUsername && (
+            <div className="p-3 bg-slate-950 border border-slate-800/80 rounded-xl space-y-2 font-mono text-[11px]">
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="flex items-center space-x-1.5 text-emerald-400 font-semibold">
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>Comando MikroTik RouterOS (/ppp secret)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const prof = effectivePlans.find(p => p.id === planId)?.profileName || 'default';
+                    const cmd = `/ppp secret add name="${pppoeUsername}" password="${pppoePassword}" profile="${prof}" service=pppoe comment="${name || 'Cliente'} - ${ruralLocation || 'Zona Rural'}"${ipAddress ? ` remote-address=${ipAddress}` : ''}${macAddress ? ` caller-id=${macAddress}` : ''}`;
+                    navigator.clipboard.writeText(cmd);
+                    setCopiedCmd(true);
+                    setTimeout(() => setCopiedCmd(false), 2000);
+                  }}
+                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center space-x-1 transition text-[10px]"
+                >
+                  {copiedCmd ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedCmd ? 'Copiado!' : 'Copiar para Winbox'}</span>
+                </button>
+              </div>
+              <div className="p-2 bg-slate-900 rounded border border-slate-800 text-emerald-300 break-all select-all text-[10px] leading-relaxed">
+                {`/ppp secret add name="${pppoeUsername}" password="${pppoePassword}" profile="${effectivePlans.find(p => p.id === planId)?.profileName || 'default'}" service=pppoe comment="${name || 'Cliente'} - ${ruralLocation || 'Zona Rural'}"${ipAddress ? ` remote-address=${ipAddress}` : ''}${macAddress ? ` caller-id=${macAddress}` : ''}`}
+              </div>
+              <p className="text-[10px] text-slate-500 font-sans">
+                💡 Ao salvar o formulário, este comando é enviado automaticamente para a API do seu MikroTik (Porta 8728).
+              </p>
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex items-center justify-end space-x-2 pt-4 border-t border-slate-800">

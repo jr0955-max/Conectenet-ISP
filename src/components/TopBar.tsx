@@ -71,8 +71,6 @@ export const TopBar: React.FC<TopBarProps> = ({
     switch (tab) {
       case 'dashboard':
         return { section: 'Painel Geral', title: 'Dashboard & Indicadores do Provedor' };
-      case 'bench':
-        return { section: 'Laboratório', title: 'Bancada de Testes & Preparação MikroTik' };
       case 'clients':
         return { section: 'Cadastros', title: 'Clientes & Automação PPPoE' };
       case 'plans':

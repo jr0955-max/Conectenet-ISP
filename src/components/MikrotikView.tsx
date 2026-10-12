@@ -45,8 +45,9 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   onTestConnection,
   onRefresh
 }) => {
-  const [subTab, setSubTab] = useState<'active' | 'secrets' | 'terminal' | 'config'>('active');
+  const [subTab, setSubTab] = useState<'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('active');
   const [copiedScript, setCopiedScript] = useState(false);
+  const [copiedBancadaScript, setCopiedBancadaScript] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [isTesting, setIsTesting] = useState(false);
 
@@ -205,6 +206,18 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
           >
             <Terminal className="w-3.5 h-3.5" />
             <span>Terminal CLI & Script</span>
+          </button>
+
+          <button
+            onClick={() => setSubTab('connect')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+              subTab === 'connect'
+                ? 'bg-cyan-600 text-white shadow'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Wifi className="w-3.5 h-3.5 text-cyan-300" />
+            <span>🌐 Conectar MikroTik (Porta 01)</span>
           </button>
 
           <button
@@ -478,6 +491,227 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
             <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
               <span>Porta padrão: 8728 (API) ou 8729 (API-SSL)</span>
               <span className="text-emerald-400 font-medium">Testado em v6 e v7</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: HOW TO CONNECT WITH MIKROTIK (PORTA 01 / ETHER1) */}
+      {subTab === 'connect' && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-cyan-950/70 via-slate-900 to-slate-900 border border-cyan-500/40 rounded-2xl p-5 shadow-lg">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start space-x-3.5">
+                <div className="p-3 bg-cyan-500/20 text-cyan-400 rounded-xl shrink-0 mt-1 sm:mt-0">
+                  <Wifi className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 uppercase tracking-wide">
+                      Internet Ativa na Porta 01 (ether1)
+                    </span>
+                    <span className="text-xs text-slate-400">RouterOS API (Porta 8728)</span>
+                  </div>
+                  <h3 className="text-base font-bold text-white mt-1">
+                    Como Conectar o Sistema ao seu MikroTik
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                    Seu MikroTik já está com internet na <strong>porta 01 (ether1)</strong>. Para o sistema se conectar a ele e criar os clientes automaticamente, você só precisa habilitar a API na porta 8728 e liberar a entrada na ether1 seguindo os 3 passos abaixo.
+                  </p>
+                </div>
+              </div>
+
+              <div className="shrink-0 flex sm:flex-col gap-2">
+                <button
+                  onClick={() => {
+                    const ether1Script = `# ==============================================================================
+# SCRIPT DE CONEXÃO DO SISTEMA AO MIKROTIK VIA PORTA 01 (ether1)
+# Cole este bloco no New Terminal do Winbox
+# ==============================================================================
+
+# 1. Habilitar a API Socket do RouterOS (Porta 8728)
+/ip service set api port=8728 address=0.0.0.0/0 disabled=no
+
+# 2. Criar Grupo e Usuário exclusivo para o sistema de gestão
+/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
+/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Sistema de Gestao"
+
+# 3. Liberar no Firewall a porta 8728 na entrada da porta 01 (ether1)
+/ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
+
+# 4. Ativar MikroTik Cloud DDNS (DNS gratuito para IP dinâmico)
+/ip cloud set ddns-enabled=yes
+/ip cloud print
+
+# 5. Criar Pool e Profile de Bloqueio por Inadimplência
+/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
+/ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte Inadimplencia"
+
+# 6. Criar Perfis de Velocidade dos Planos Ativos
+${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
+
+# 7. Servidor PPPoE (interface de distribuição para clientes)
+/interface pppoe-server server add service-name=pppoe-provedor interface=ether2 default-profile=default disabled=no
+`;
+                    navigator.clipboard.writeText(ether1Script);
+                    setCopiedBancadaScript(true);
+                    setTimeout(() => setCopiedBancadaScript(false), 2500);
+                  }}
+                  className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition shadow-md shadow-cyan-950"
+                >
+                  {copiedBancadaScript ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedBancadaScript ? 'Script Copiado!' : 'Copiar Script da Porta 01'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Os 3 Passos Essenciais */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Passo 1: Descobrir o IP */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <div className="flex items-center space-x-2.5">
+                <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 font-mono font-bold text-xs flex items-center justify-center border border-cyan-500/30">
+                  1
+                </span>
+                <h4 className="text-sm font-bold text-white">Identificar o IP da ether1</h4>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                No Winbox, abra o <strong>New Terminal</strong> e digite:
+              </p>
+              <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800 font-mono text-[11px] text-cyan-300 select-all">
+                /ip address print
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Anote o IP que aparece na interface <code className="text-white font-mono">ether1</code> (ex: <em>192.168.1.100</em> ou seu IP de internet).
+              </p>
+              <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
+                💡 Se for IP dinâmico, digite <code className="text-slate-400">/ip cloud print</code> para pegar o nome DNS gratuito.
+              </div>
+            </div>
+
+            {/* Passo 2: Executar Script no Winbox */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <div className="flex items-center space-x-2.5">
+                <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs flex items-center justify-center border border-emerald-500/30">
+                  2
+                </span>
+                <h4 className="text-sm font-bold text-white">Rodar o Script no Winbox</h4>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Clique no botão <strong>"Copiar Script da Porta 01"</strong> acima, vá no Winbox:
+              </p>
+              <ol className="text-[11px] text-slate-400 space-y-1 list-decimal list-inside">
+                <li>Abra o menu <strong>New Terminal</strong></li>
+                <li>Pressione <strong className="text-slate-200">Ctrl + V</strong> (ou clique direito &gt; Paste)</li>
+                <li>Pressione <strong className="text-slate-200">Enter</strong></li>
+              </ol>
+              <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
+                ✅ O script libera a porta 8728 na ether1, cria o usuário do sistema e os perfis dos planos.
+              </div>
+            </div>
+
+            {/* Passo 3: Configurar e Testar */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <div className="flex items-center space-x-2.5">
+                <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold text-xs flex items-center justify-center border border-amber-500/30">
+                  3
+                </span>
+                <h4 className="text-sm font-bold text-white">Salvar & Testar Conexão</h4>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Vá na aba <strong>"Conexão & API"</strong> e preencha:
+              </p>
+              <ul className="text-[11px] text-slate-400 space-y-1">
+                <li>• <strong>Host:</strong> IP da sua ether1</li>
+                <li>• <strong>Porta:</strong> <span className="text-white font-mono">8728</span></li>
+                <li>• <strong>Usuário:</strong> <span className="text-white font-mono">{user || 'admin_isp'}</span></li>
+                <li>• <strong>Senha:</strong> a senha definida no script</li>
+              </ul>
+              <button
+                onClick={() => setSubTab('config')}
+                className="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-semibold transition border border-slate-700 flex items-center justify-center space-x-1"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Ir para Conexão & API</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Script Completo Pronto para o Winbox */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                  <Terminal className="w-4 h-4 text-emerald-400" />
+                  <span>Script de Liberação da Porta 01 (ether1) para o Winbox</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Copie e cole este script diretamente no Terminal do Winbox:
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const ether1Script = `# ==============================================================================
+# SCRIPT DE CONEXÃO DO SISTEMA AO MIKROTIK VIA PORTA 01 (ether1)
+# ==============================================================================
+/ip service set api port=8728 address=0.0.0.0/0 disabled=no
+/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
+/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Sistema de Gestao"
+/ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
+/ip cloud set ddns-enabled=yes
+/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
+/ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte Inadimplencia"
+${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
+/interface pppoe-server server add service-name=pppoe-provedor interface=ether2 default-profile=default disabled=no
+`;
+                  navigator.clipboard.writeText(ether1Script);
+                  setCopiedBancadaScript(true);
+                  setTimeout(() => setCopiedBancadaScript(false), 2500);
+                }}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
+              >
+                {copiedBancadaScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedBancadaScript ? 'Copiado!' : 'Copiar Script'}</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-emerald-400 overflow-x-auto whitespace-pre leading-relaxed select-all">
+{`# 1. Habilitar a API do RouterOS na porta 8728
+/ip service set api port=8728 address=0.0.0.0/0 disabled=no
+
+# 2. Criar Grupo e Usuário exclusivo para o sistema de gestão
+/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
+/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Sistema de Gestao"
+
+# 3. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
+/ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
+
+# 4. Ativar MikroTik Cloud DDNS (DNS gratuito para IP dinâmico)
+/ip cloud set ddns-enabled=yes
+/ip cloud print
+
+# 5. Criar Pool e Profile de Bloqueio por Inadimplência
+/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
+/ppp profile add name="${blockProfile || 'bloqueados'}" \\
+    local-address=10.99.99.1 \\
+    remote-address=pool-bloqueados \\
+    rate-limit=128k/128k \\
+    dns-server=10.99.99.1 \\
+    comment="Corte por atraso"
+
+# 6. Criar Perfis de Velocidade dos seus Planos
+${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
+
+# 7. Servidor PPPoE (interface ether2 para clientes)
+/interface pppoe-server server add \\
+    service-name=pppoe-provedor \\
+    interface=ether2 \\
+    default-profile=default \\
+    authentication=chap,pap,mschap2 \\
+    one-session-per-host=yes \\
+    disabled=no`}
             </div>
           </div>
         </div>

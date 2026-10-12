@@ -249,7 +249,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
             <ul className="text-[11px] text-slate-400 space-y-1">
               <li className="text-emerald-400">✓ Monitor /ppp active e Sinal Wireless</li>
               <li className="text-emerald-400">✓ Cadastrar Clientes & Secrets PPPoE</li>
-              <li className="text-emerald-400">✓ Derrubar Sessões Ativas & Testar Bancada</li>
+              <li className="text-emerald-400">✓ Derrubar Sessões Ativas & Diagnóstico</li>
               <li className="text-emerald-400">✓ Gerenciar Torres e POPs Rurais</li>
               <li className="text-red-400">✗ Restrito de Ver Relatórios Financeiros</li>
             </ul>

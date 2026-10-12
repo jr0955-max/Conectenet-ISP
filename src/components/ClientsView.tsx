@@ -19,7 +19,10 @@ import {
   Phone,
   Calendar,
   Lock,
-  Unlock
+  Unlock,
+  Terminal,
+  Copy,
+  Check
 } from 'lucide-react';
 import { Client, Plan, Tower, Invoice, CompanySettings } from '../types/index.js';
 
@@ -53,6 +56,32 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
   const [towerFilter, setTowerFilter] = useState<string>('all');
+  const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
+  const [copiedBatch, setCopiedBatch] = useState(false);
+
+  const handleExportAllSecrets = () => {
+    if (clients.length === 0) return;
+    const lines = [
+      '# ============================================================================== #',
+      '# EXPORTAÇÃO DE SECRETS PPPOE PARA MIKROTIK ROUTEROS (GERADO AUTOMATICAMENTE)   #',
+      '# Cole este bloco no New Terminal do Winbox                                     #',
+      '# ============================================================================== #',
+      ''
+    ];
+
+    clients.forEach(c => {
+      const plan = plans.find(p => p.id === c.planId);
+      const profile = c.status === 'blocked' ? 'bloqueados' : (plan?.profileName || 'default');
+      const comment = `${c.name} - ${c.ruralLocation}`;
+      lines.push(
+        `:if ([:len [/ppp secret find name="${c.pppoeUsername}"]] = 0) do={ /ppp secret add name="${c.pppoeUsername}" password="${c.pppoePassword}" profile="${profile}" service=pppoe comment="${comment}"${c.ipAddress ? ` remote-address=${c.ipAddress}` : ''} } else={ /ppp secret set [find name="${c.pppoeUsername}"] password="${c.pppoePassword}" profile="${profile}" comment="${comment}" }`
+      );
+    });
+
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedBatch(true);
+    setTimeout(() => setCopiedBatch(false), 2500);
+  };
 
   const filteredClients = clients.filter(client => {
     const matchesSearch = 
@@ -111,13 +140,26 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             </p>
           </div>
 
-          <button
-            onClick={onOpenNewClient}
-            className="flex items-center justify-center space-x-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition shadow-md shadow-emerald-950/40 shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Novo Cliente & Assinante</span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            {clients.length > 0 && (
+              <button
+                onClick={handleExportAllSecrets}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition border border-slate-700"
+                title="Copiar todos os comandos /ppp secret add dos clientes para colar no Terminal do Winbox"
+              >
+                {copiedBatch ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Terminal className="w-3.5 h-3.5 text-emerald-400" />}
+                <span>{copiedBatch ? 'Script Copiado!' : 'Copiar Script MikroTik'}</span>
+              </button>
+            )}
+
+            <button
+              onClick={onOpenNewClient}
+              className="flex items-center justify-center space-x-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition shadow-md shadow-emerald-950/40 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Novo Cliente & Assinante</span>
+            </button>
+          </div>
         </div>
 
         {/* Filters and Search Input */}
@@ -314,6 +356,23 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                               <FileText className="w-4 h-4" />
                             </button>
                           )}
+
+                          {/* MikroTik CLI Copy */}
+                          <button
+                            onClick={() => {
+                              const plan = plans.find(p => p.id === client.planId);
+                              const profile = client.status === 'blocked' ? 'bloqueados' : (plan?.profileName || 'default');
+                              const comment = `${client.name} - ${client.ruralLocation}`;
+                              const cmd = `:if ([:len [/ppp secret find name="${client.pppoeUsername}"]] = 0) do={ /ppp secret add name="${client.pppoeUsername}" password="${client.pppoePassword}" profile="${profile}" service=pppoe comment="${comment}"${client.ipAddress ? ` remote-address=${client.ipAddress}` : ''} } else={ /ppp secret set [find name="${client.pppoeUsername}"] password="${client.pppoePassword}" profile="${profile}" comment="${comment}" }`;
+                              navigator.clipboard.writeText(cmd);
+                              setCopiedClientId(client.id);
+                              setTimeout(() => setCopiedClientId(null), 2000);
+                            }}
+                            title="Copiar comando MikroTik RouterOS (/ppp secret) para New Terminal no Winbox"
+                            className="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition"
+                          >
+                            {copiedClientId === client.id ? <Check className="w-4 h-4 text-emerald-300" /> : <Terminal className="w-4 h-4" />}
+                          </button>
 
                           {/* Edit */}
                           <button

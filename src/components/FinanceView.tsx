@@ -35,6 +35,7 @@ import { SingleChargeModal } from './SingleChargeModal.js';
 import { CarneGeneratorModal } from './CarneGeneratorModal.js';
 import { NewCarneModal } from './NewCarneModal.js';
 import { CarneDetailsModal } from './CarneDetailsModal.js';
+import { NewChargeModal } from './NewChargeModal.js';
 
 interface FinanceViewProps {
   invoices: Invoice[];
@@ -69,6 +70,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [selectedInvoiceForWebhook, setSelectedInvoiceForWebhook] = useState<string>('');
   const [webhookResult, setWebhookResult] = useState<any>(null);
   const [isProcessingWebhook, setIsProcessingWebhook] = useState(false);
+
+  // Cobranças State
+  const [searchTermCharges, setSearchTermCharges] = useState<string>('');
+  const [isNewChargeModalOpen, setIsNewChargeModalOpen] = useState<boolean>(false);
 
   // Carnês State
   const [carnes, setCarnes] = useState<Carne[]>([]);
@@ -801,7 +806,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
               </div>
               <div className="mt-2 text-2xl font-bold font-mono">
-                {carnes.length || 394}
+                {carnes.length}
               </div>
             </div>
 
@@ -814,7 +819,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
               </div>
               <div className="mt-2 text-2xl font-bold font-mono">
-                {carnes.filter(c => c.status === 'em dia').length || 157}
+                {carnes.filter(c => c.status === 'em dia').length}
               </div>
             </div>
 
@@ -827,7 +832,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
               </div>
               <div className="mt-2 text-2xl font-bold font-mono">
-                {carnes.filter(c => c.status === 'em atraso').length || 237}
+                {carnes.filter(c => c.status === 'em atraso').length}
               </div>
             </div>
 

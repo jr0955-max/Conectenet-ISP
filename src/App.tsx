@@ -8,7 +8,6 @@ import { FinanceView } from './components/FinanceView.js';
 import { TowersView } from './components/TowersView.js';
 import { AuditLogsView } from './components/AuditLogsView.js';
 import { DeployGuideView } from './components/DeployGuideView.js';
-import { BenchLabView } from './components/BenchLabView.js';
 import { PlansView } from './components/PlansView.js';
 import { PlanModal } from './components/PlanModal.js';
 import { UsersManagementView } from './components/UsersManagementView.js';
@@ -514,14 +513,6 @@ export default function App() {
     return data;
   };
 
-  const handleResetBench = async () => {
-    const res = await fetch('/api/bench/reset', { method: 'POST' });
-    const data = await res.json();
-    showNotification('Dados do laboratório restaurados para teste!', 'info');
-    await loadAllData();
-    return data;
-  };
-
   const handleOpenNewInvoice = () => {
     if (clients.length === 0) return;
     const client = clients[0];
@@ -671,17 +662,6 @@ export default function App() {
               onNavigateTab={(tab) => setActiveTab(tab)}
               onSimulateWebhook={() => handleSimulateWebhook()}
               companySettings={companySettings}
-            />
-          )}
-
-          {activeTab === 'bench' && (
-            <BenchLabView
-              config={mikrotikConfig}
-              clients={clients}
-              onImportBatch={handleImportBatch}
-              onResetBench={handleResetBench}
-              onTestConnection={handleTestMikrotik}
-              onRefresh={loadAllData}
             />
           )}
 

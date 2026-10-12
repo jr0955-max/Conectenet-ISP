@@ -154,15 +154,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="flex items-center justify-center space-x-2 p-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-bold transition"
           >
             <Cpu className="w-4 h-4 shrink-0" />
-            <span>MikroTik NOC</span>
+            <span>MikroTik RouterOS</span>
           </button>
 
           <button
-            onClick={() => onNavigateTab('bench')}
+            onClick={() => onNavigateTab('finance')}
             className="flex items-center justify-center space-x-2 p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 text-xs font-bold transition"
           >
-            <Activity className="w-4 h-4 shrink-0 text-amber-400" />
-            <span>Bancada Lab</span>
+            <DollarSign className="w-4 h-4 shrink-0 text-amber-400" />
+            <span>Financeiro & Carnês</span>
           </button>
         </div>
       </div>
@@ -261,7 +261,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="text-2xl font-bold text-amber-400 tracking-tight">
-              {stats?.openTickets || 3}
+              {stats?.openTickets || 0}
             </span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">
               Chamados
@@ -477,7 +477,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {recentInvoices.map(invoice => (
+                {recentInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
+                      Nenhuma fatura registrada ainda.
+                    </td>
+                  </tr>
+                ) : (
+                  recentInvoices.map(invoice => (
                   <tr key={invoice.id} className="hover:bg-slate-800/40 transition">
                     <td className="py-3 px-3 font-medium text-white">{invoice.clientName}</td>
                     <td className="py-3 px-3 text-slate-400">{invoice.planName}</td>
@@ -511,7 +518,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </button>
                     </td>
                   </tr>
-                ))}
+                )))
+              }
               </tbody>
             </table>
           </div>
