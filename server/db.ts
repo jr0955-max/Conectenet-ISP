@@ -107,7 +107,7 @@ export const initialTowers: Tower[] = [
 export const initialClients: Client[] = [];
 
 export const initialMikrotikConfig: MikrotikConfig = {
-  host: '192.168.88.1',
+  host: '192.168.1.120',
   port: 8728, // Standard RouterOS API port
   user: 'admin_isp',
   blockProfile: 'bloqueados',

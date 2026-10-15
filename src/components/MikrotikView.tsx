@@ -54,7 +54,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   const [isTesting, setIsTesting] = useState(false);
 
   // Config form state
-  const [host, setHost] = useState(config?.host || '192.168.88.1');
+  const [host, setHost] = useState(config?.host || '192.168.1.120');
   const [port, setPort] = useState(config?.port || 8728);
   const [user, setUser] = useState(config?.user || 'admin_isp');
   const [password, setPassword] = useState('');
