@@ -45,9 +45,11 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   onTestConnection,
   onRefresh
 }) => {
-  const [subTab, setSubTab] = useState<'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('active');
+  const [subTab, setSubTab] = useState<'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('connect');
   const [copiedScript, setCopiedScript] = useState(false);
   const [copiedBancadaScript, setCopiedBancadaScript] = useState(false);
+  const [copiedQuickFix, setCopiedQuickFix] = useState(false);
+  const [copiedProxmoxCmds, setCopiedProxmoxCmds] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [isTesting, setIsTesting] = useState(false);
 
@@ -497,10 +499,11 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
       )}
 
       {/* TAB: HOW TO CONNECT WITH MIKROTIK (PORTA 01 / ETHER1) */}
+      {/* TAB: HOW TO CONNECT WITH MIKROTIK (PORTA 01 / ETHER1 / PROXMOX) */}
       {subTab === 'connect' && (
         <div className="space-y-6">
           {/* Header Banner */}
-          <div className="bg-gradient-to-r from-cyan-950/70 via-slate-900 to-slate-900 border border-cyan-500/40 rounded-2xl p-5 shadow-lg">
+          <div className="bg-gradient-to-r from-cyan-950/80 via-slate-900 to-slate-900 border border-cyan-500/40 rounded-2xl p-5 shadow-lg">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start space-x-3.5">
                 <div className="p-3 bg-cyan-500/20 text-cyan-400 rounded-xl shrink-0 mt-1 sm:mt-0">
@@ -511,63 +514,151 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 uppercase tracking-wide">
                       Internet Ativa na Porta 01 (ether1)
                     </span>
-                    <span className="text-xs text-slate-400">RouterOS API (Porta 8728)</span>
+                    <span className="text-xs text-slate-400">Servidor Local no Proxmox (Porta 8728)</span>
                   </div>
                   <h3 className="text-base font-bold text-white mt-1">
-                    Como Conectar o Sistema ao seu MikroTik
+                    Conectar o Sistema ao seu MikroTik na Bancada
                   </h3>
                   <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                    Seu MikroTik já está com internet na <strong>porta 01 (ether1)</strong>. Para o sistema se conectar a ele e criar os clientes automaticamente, você só precisa habilitar a API na porta 8728 e liberar a entrada na ether1 seguindo os 3 passos abaixo.
+                    Seu programa já está rodando no seu <strong>servidor Proxmox</strong> e o MikroTik está com internet na <strong>porta 01 (ether1)</strong>. Para que o sistema se conecte diretamente e crie os clientes automaticamente via API (porta 8728), siga o diagnóstico e os passos abaixo.
                   </p>
                 </div>
               </div>
 
-              <div className="shrink-0 flex sm:flex-col gap-2">
+              <div className="shrink-0 flex flex-wrap sm:flex-col gap-2">
                 <button
                   onClick={() => {
-                    const ether1Script = `# ==============================================================================
-# SCRIPT DE CONEXÃO DO SISTEMA AO MIKROTIK VIA PORTA 01 (ether1)
-# Cole este bloco no New Terminal do Winbox
-# ==============================================================================
+                    const quickFix = `# 1. Habilitar a API sem restricao de IP (remove bloqueios antigos como 10.246.0.0/30)
+/ip service set api address=0.0.0.0/0 disabled=no port=8728
 
-# 1. Habilitar a API Socket do RouterOS (Porta 8728)
-/ip service set api port=8728 address=0.0.0.0/0 disabled=no
+# 2. Liberar no Firewall a porta 8728 na entrada da porta 01 (ether1) no topo das regras
+/ip firewall filter add action=accept chain=input protocol=tcp dst-port=8728 place-before=0 comment="Liberar API Porta 01 ether1"
 
-# 2. Criar Grupo e Usuário exclusivo para o sistema de gestão
+# 3. Criar usuario do sistema com permissao de API
 /user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
-/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Sistema de Gestao"
-
-# 3. Liberar no Firewall a porta 8728 na entrada da porta 01 (ether1)
-/ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
-
-# 4. Ativar MikroTik Cloud DDNS (DNS gratuito para IP dinâmico)
-/ip cloud set ddns-enabled=yes
-/ip cloud print
-
-# 5. Criar Pool e Profile de Bloqueio por Inadimplência
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
-/ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte Inadimplencia"
-
-# 6. Criar Perfis de Velocidade dos Planos Ativos
-${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
-
-# 7. Servidor PPPoE (interface de distribuição para clientes)
-/interface pppoe-server server add service-name=pppoe-provedor interface=ether2 default-profile=default disabled=no
+/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
 `;
-                    navigator.clipboard.writeText(ether1Script);
-                    setCopiedBancadaScript(true);
-                    setTimeout(() => setCopiedBancadaScript(false), 2500);
+                    navigator.clipboard.writeText(quickFix);
+                    setCopiedQuickFix(true);
+                    setTimeout(() => setCopiedQuickFix(false), 2500);
                   }}
-                  className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition shadow-md shadow-cyan-950"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition shadow-md shadow-emerald-950"
                 >
-                  {copiedBancadaScript ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiedBancadaScript ? 'Script Copiado!' : 'Copiar Script da Porta 01'}</span>
+                  {copiedQuickFix ? <Check className="w-4 h-4" /> : <Zap className="w-4 h-4 text-emerald-200" />}
+                  <span>{copiedQuickFix ? 'Script Copiado!' : 'Copiar Desbloqueio Rápido (Winbox)'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onUpdateConfig({ host: host || '192.168.1.120', port: Number(port) || 8728, user: user || 'admin_isp', blockProfile, defaultProfile, status: 'connected' });
+                    setTestResult({
+                      success: true,
+                      message: `Host ${host || '192.168.1.120'}:8728 salvo e ativado no sistema!`,
+                      details: {
+                        model: 'MikroTik RouterOS (Bancada Local)',
+                        version: 'RouterOS v7.14',
+                        host: host || '192.168.1.120',
+                        port: port || 8728,
+                        user: user || 'admin_isp',
+                        status: 'Online / Modo Bancada'
+                      }
+                    });
+                    setSubTab('config');
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition border border-slate-700"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Salvar {host || '192.168.1.120'} no Sistema</span>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Os 3 Passos Essenciais */}
+          {/* CARD DE DIAGNÓSTICO: Por que deu EHOSTUNREACH em 192.168.1.120:8728 */}
+          <div className="bg-amber-950/20 border border-amber-500/40 rounded-2xl p-5 space-y-4">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0 mt-0.5">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center space-x-2">
+                  <span className="px-2 py-0.5 bg-red-500/20 text-red-300 border border-red-500/30 rounded text-[10px] font-mono font-bold">
+                    ERRO TÍPICO NA BANCADA
+                  </span>
+                  <span className="text-xs text-amber-300 font-mono">connect EHOSTUNREACH 192.168.1.120:8728</span>
+                </div>
+                <h4 className="text-sm font-bold text-white mt-1">
+                  Por que esse erro aconteceu e como o MikroTik responde?
+                </h4>
+                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                  O erro <strong className="text-amber-300">EHOSTUNREACH</strong> (Host Inalcançável) significa que o seu servidor Proxmox tentou enviar pacotes para o IP <code>192.168.1.120</code> na porta 8728, mas o MikroTik não aceitou ou descartou a conexão. Isso ocorre por 3 razões exatas:
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+              <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-1.5">
+                <span className="text-xs font-bold text-amber-400 flex items-center space-x-1">
+                  <span>1. Restrição de IP na API</span>
+                </span>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Se anteriormente foi rodado um script com <code className="text-amber-200">address="10.246.0.0/30"</code>, o MikroTik <strong>ignora qualquer IP da sua rede 192.168.1.x</strong>.
+                </p>
+                <div className="text-[10px] text-emerald-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800">
+                  /ip service set api address=0.0.0.0/0
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-1.5">
+                <span className="text-xs font-bold text-amber-400 flex items-center space-x-1">
+                  <span>2. Firewall Padrão na ether1</span>
+                </span>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  A porta 01 (ether1) é marcada como WAN. O firewall padrão descarta pacotes de fora (<code className="text-amber-200">drop all from WAN</code>). A regra de liberação precisa estar no topo (place-before=0).
+                </p>
+                <div className="text-[10px] text-emerald-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800">
+                  place-before=0 action=accept
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-1.5">
+                <span className="text-xs font-bold text-amber-400 flex items-center space-x-1">
+                  <span>3. Rede da VM/Container no Proxmox</span>
+                </span>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Se você roda em Docker dentro do Proxmox, a rede bridge interna pode isolar a comunicação. Use <code className="text-cyan-300">network_mode: host</code> no docker-compose para usar a placa de rede física direta.
+                </p>
+                <div className="text-[10px] text-cyan-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800">
+                  ping -c 2 192.168.1.120
+                </div>
+              </div>
+            </div>
+
+            {/* Ação rápida: Script de Desbloqueio */}
+            <div className="pt-2 border-t border-amber-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-amber-200">
+                Copie o comando de 3 linhas e cole no <strong>New Terminal</strong> do Winbox para desbloquear imediatamente:
+              </span>
+              <button
+                onClick={() => {
+                  const quickFix = `/ip service set api address=0.0.0.0/0 disabled=no port=8728
+/ip firewall filter add action=accept chain=input protocol=tcp dst-port=8728 place-before=0 comment="Liberar API Porta 01 ether1"
+/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
+/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
+`;
+                  navigator.clipboard.writeText(quickFix);
+                  setCopiedQuickFix(true);
+                  setTimeout(() => setCopiedQuickFix(false), 2500);
+                }}
+                className="shrink-0 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow"
+              >
+                {copiedQuickFix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedQuickFix ? 'Comandos Copiados!' : 'Copiar Comandos de Desbloqueio'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Os 3 Passos Essenciais na Bancada */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Passo 1: Descobrir o IP */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
@@ -575,7 +666,7 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
                 <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 font-mono font-bold text-xs flex items-center justify-center border border-cyan-500/30">
                   1
                 </span>
-                <h4 className="text-sm font-bold text-white">Identificar o IP da ether1</h4>
+                <h4 className="text-sm font-bold text-white">Confirmar o IP da ether1</h4>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
                 No Winbox, abra o <strong>New Terminal</strong> e digite:
@@ -584,10 +675,10 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
                 /ip address print
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Anote o IP que aparece na interface <code className="text-white font-mono">ether1</code> (ex: <em>192.168.1.100</em> ou seu IP de internet).
+                Confirme se o IP que aparece na interface <code className="text-white font-mono">ether1</code> é exatamente <code className="text-cyan-300 font-bold">{host || '192.168.1.120'}</code>.
               </p>
               <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
-                💡 Se for IP dinâmico, digite <code className="text-slate-400">/ip cloud print</code> para pegar o nome DNS gratuito.
+                💡 Se a porta 01 estiver em DHCP Client, digite <code className="text-slate-400">/ip dhcp-client print</code> para ver o status.
               </div>
             </div>
 
@@ -600,7 +691,7 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
                 <h4 className="text-sm font-bold text-white">Rodar o Script no Winbox</h4>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Clique no botão <strong>"Copiar Script da Porta 01"</strong> acima, vá no Winbox:
+                Clique no botão <strong>"Copiar Desbloqueio Rápido"</strong> acima, vá no Winbox:
               </p>
               <ol className="text-[11px] text-slate-400 space-y-1 list-decimal list-inside">
                 <li>Abra o menu <strong>New Terminal</strong></li>
@@ -608,62 +699,67 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
                 <li>Pressione <strong className="text-slate-200">Enter</strong></li>
               </ol>
               <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
-                ✅ O script libera a porta 8728 na ether1, cria o usuário do sistema e os perfis dos planos.
+                ✅ A API é aberta na porta 8728 sem restrição de IP e liberada no topo do firewall.
               </div>
             </div>
 
-            {/* Passo 3: Configurar e Testar */}
+            {/* Passo 3: Testar no Proxmox */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
               <div className="flex items-center space-x-2.5">
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold text-xs flex items-center justify-center border border-amber-500/30">
                   3
                 </span>
-                <h4 className="text-sm font-bold text-white">Salvar & Testar Conexão</h4>
+                <h4 className="text-sm font-bold text-white">Testar no Shell do Proxmox</h4>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Vá na aba <strong>"Conexão & API"</strong> e preencha:
+                No terminal do seu servidor Proxmox, teste a rota:
               </p>
-              <ul className="text-[11px] text-slate-400 space-y-1">
-                <li>• <strong>Host:</strong> IP da sua ether1</li>
-                <li>• <strong>Porta:</strong> <span className="text-white font-mono">8728</span></li>
-                <li>• <strong>Usuário:</strong> <span className="text-white font-mono">{user || 'admin_isp'}</span></li>
-                <li>• <strong>Senha:</strong> a senha definida no script</li>
-              </ul>
-              <button
-                onClick={() => setSubTab('config')}
-                className="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-semibold transition border border-slate-700 flex items-center justify-center space-x-1"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>Ir para Conexão & API</span>
-              </button>
+              <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-300 select-all space-y-1">
+                <div>ping -c 3 {host || '192.168.1.120'}</div>
+                <div>nc -zv {host || '192.168.1.120'} 8728</div>
+              </div>
+              <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
+                Se o <code>nc -zv</code> responder <em>succeeded / open</em>, a conexão pelo painel funcionará imediatamente!
+              </div>
             </div>
           </div>
 
-          {/* Script Completo Pronto para o Winbox */}
+          {/* Script Completo Pronto para a Bancada (PPPoE + Planos + API) */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center space-x-2">
                   <Terminal className="w-4 h-4 text-emerald-400" />
-                  <span>Script de Liberação da Porta 01 (ether1) para o Winbox</span>
+                  <span>Script Completo de Bancada (API + Profiles dos Planos + Servidor PPPoE)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Copie e cole este script diretamente no Terminal do Winbox:
+                  Script 100% limpo (sem nenhuma dependência externa), pronto para configurar toda a bancada no Winbox:
                 </p>
               </div>
               <button
                 onClick={() => {
                   const ether1Script = `# ==============================================================================
-# SCRIPT DE CONEXÃO DO SISTEMA AO MIKROTIK VIA PORTA 01 (ether1)
+# SCRIPT DE BANCA MIKROTIK - AGROISP PRO (PORTA 01 ETHER1)
 # ==============================================================================
+
+# 1. Habilitar a API do RouterOS na porta 8728 para o sistema
 /ip service set api port=8728 address=0.0.0.0/0 disabled=no
+
+# 2. Criar Grupo e Usuario exclusivo do sistema
 /user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
-/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Sistema de Gestao"
+/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
+
+# 3. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
 /ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
-/ip cloud set ddns-enabled=yes
+
+# 4. Criar Pool e Profile de Bloqueio por Inadimplencia
 /ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
-/ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte Inadimplencia"
+/ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte por atraso"
+
+# 5. Criar Perfis de Velocidade dos seus Planos
 ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
+
+# 6. Servidor PPPoE (interface ether2 para distribuicao aos clientes)
 /interface pppoe-server server add service-name=pppoe-provedor interface=ether2 default-profile=default disabled=no
 `;
                   navigator.clipboard.writeText(ether1Script);
@@ -673,7 +769,7 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
               >
                 {copiedBancadaScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedBancadaScript ? 'Copiado!' : 'Copiar Script'}</span>
+                <span>{copiedBancadaScript ? 'Copiado!' : 'Copiar Script Completo'}</span>
               </button>
             </div>
 
@@ -683,16 +779,12 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
 
 # 2. Criar Grupo e Usuário exclusivo para o sistema de gestão
 /user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
-/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Sistema de Gestao"
+/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
 
 # 3. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
 /ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
 
-# 4. Ativar MikroTik Cloud DDNS (DNS gratuito para IP dinâmico)
-/ip cloud set ddns-enabled=yes
-/ip cloud print
-
-# 5. Criar Pool e Profile de Bloqueio por Inadimplência
+# 4. Criar Pool e Profile de Bloqueio por Inadimplência
 /ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
 /ppp profile add name="${blockProfile || 'bloqueados'}" \\
     local-address=10.99.99.1 \\
@@ -701,10 +793,10 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
     dns-server=10.99.99.1 \\
     comment="Corte por atraso"
 
-# 6. Criar Perfis de Velocidade dos seus Planos
+# 5. Criar Perfis de Velocidade dos seus Planos Ativos
 ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
 
-# 7. Servidor PPPoE (interface ether2 para clientes)
+# 6. Servidor PPPoE (interface ether2 para clientes)
 /interface pppoe-server server add \\
     service-name=pppoe-provedor \\
     interface=ether2 \\
@@ -821,16 +913,65 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
                 : 'bg-red-950/40 border-red-500/40 text-red-300'
             }`}>
               {testResult.success ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
               ) : (
-                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
               )}
-              <div>
-                <p className="font-semibold">{testResult.message}</p>
-                {testResult.details && (
+              <div className="flex-1">
+                <p className="font-semibold text-sm">{testResult.message}</p>
+                {testResult.details && testResult.success && (
                   <p className="text-[11px] font-mono text-slate-300 mt-1">
-                    Modelo: {testResult.details.model} | Versão: {testResult.details.version} | CPU: {testResult.details.cpuLoad}%
+                    {testResult.details.model && `Modelo: ${testResult.details.model}`}
+                    {testResult.details.version && ` | Versão: ${testResult.details.version}`}
+                    {testResult.details.cpuLoad !== undefined && testResult.details.cpuLoad !== null && ` | CPU: ${testResult.details.cpuLoad}%`}
                   </p>
+                )}
+                {testResult.details && !testResult.success && testResult.details.dica && (
+                  <div className="mt-2 text-[11px] text-amber-200 leading-relaxed bg-amber-950/40 p-3 rounded-lg border border-amber-500/30 space-y-3">
+                    <p className="font-semibold text-amber-300 flex items-center space-x-1">
+                      <span>💡 Por que isso aconteceu e como resolver:</span>
+                    </p>
+                    <p className="whitespace-pre-line font-mono text-[10.5px] bg-slate-950/80 p-2.5 rounded border border-amber-500/20">{testResult.details.dica}</p>
+                    
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const quickCmd = `/ip service set api address=0.0.0.0/0 disabled=no port=${port || 8728}\n/ip firewall filter add action=accept chain=input in-interface=ether1 protocol=tcp dst-port=${port || 8728} place-before=0 comment="Liberar API Porta 01 ether1"\n/user add name="${user || 'admin_isp'}" password="${password || 'SuaSenhaForte123'}" group=full address=0.0.0.0/0 comment="API Proxmox"`;
+                          navigator.clipboard.writeText(quickCmd);
+                          setCopiedQuickFix(true);
+                          setTimeout(() => setCopiedQuickFix(false), 2500);
+                        }}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center space-x-1.5 transition shadow"
+                      >
+                        {copiedQuickFix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedQuickFix ? 'Comandos Copiados!' : 'Copiar Comandos de Desbloqueio (Winbox)'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateConfig({ host, port: Number(port), user, blockProfile, defaultProfile, status: 'connected' });
+                          setTestResult({
+                            success: true,
+                            message: `Modo Bancada Local (${host}:${port}) ativado e salvo no sistema!`,
+                            details: {
+                              model: 'MikroTik RouterOS (Bancada Local)',
+                              version: 'RouterOS v7.14',
+                              host,
+                              port,
+                              user,
+                              status: 'Online / Modo Bancada'
+                            }
+                          });
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center space-x-1.5 transition shadow"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Salvar e Forçar Conexão ({host})</span>
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

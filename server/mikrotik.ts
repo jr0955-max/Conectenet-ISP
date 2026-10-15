@@ -155,6 +155,42 @@ class MikrotikService {
         }
       };
     } else {
+      const isPrivateNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(host);
+      const isUnreachable = probeError.includes('EHOSTUNREACH') || probeError.includes('ETIMEDOUT');
+      const isRefused = probeError.includes('ECONNREFUSED');
+
+      let customDica = '';
+      if (isUnreachable) {
+        customDica = `[EHOSTUNREACH / Timeout em ${host}:${port}]
+O seu servidor Proxmox não conseguiu alcançar o IP ${host}. Principais causas e como resolver:
+
+1. A API do MikroTik está bloqueada ou com restrição de IP:
+   Se o script antigo (ex: BeesWeb) havia definido 'address="10.246.0.0/30"', o MikroTik rejeita conexões de 192.168.1.x.
+   Cole no New Terminal do Winbox:
+   /ip service set api address=0.0.0.0/0 disabled=no port=${port}
+
+2. Firewall padrão na Porta 01 (ether1):
+   Como a ether1 é a entrada de internet (WAN), o firewall descarta pacotes de entrada. Libere a porta ${port}:
+   /ip firewall filter add action=accept chain=input protocol=tcp dst-port=${port} place-before=0 comment="Liberar API Porta 01 ether1"
+
+3. Rede no Proxmox (LXC / VM / Docker):
+   • Se estiver usando Docker no Proxmox, use "network_mode: host" no docker-compose.yml para compartilhar a mesma interface de rede da máquina física.
+   • No terminal do Proxmox, digite: ping -c 3 ${host} (se não responder, verifique se a VM/LXC está conectada na mesma bridge vmbr0 do modem/roteador).`;
+      } else if (isRefused) {
+        customDica = `[ECONNREFUSED - Conexão Recusada em ${host}:${port}]
+O IP ${host} respondeu, mas a porta ${port} está FECHADA no MikroTik.
+Para abrir a API no Winbox, execute:
+/ip service set api address=0.0.0.0/0 disabled=no port=${port}`;
+      } else if (isPrivateNetwork) {
+        customDica = `O IP ${host} é da rede local. Para o Proxmox se comunicar com o MikroTik na ether1:
+• Execute no Winbox:
+  /ip service set api address=0.0.0.0/0 disabled=no port=${port}
+  /ip firewall filter add action=accept chain=input protocol=tcp dst-port=${port} place-before=0 comment="Liberar API ether1"
+• Se o seu Proxmox estiver rodando em Docker, certifique-se de configurar a rede como 'host' para enxergar a rede 192.168.1.x diretamente.`;
+      } else {
+        customDica = 'Verifique se o script foi colado no New Terminal do Winbox liberando a ether1, e se o serviço de API está ativo com /ip service set api disabled=no.';
+      }
+
       return {
         success: false,
         message: `Não foi possível conectar em ${host}:${port} (${probeError}).`,
@@ -162,7 +198,8 @@ class MikrotikService {
           host,
           port,
           user,
-          dica: 'Verifique se o script foi colado no New Terminal do Winbox liberando a ether1, ou se o modem da operadora precisa de DMZ/Redirecionamento para a porta 8728.'
+          errorType: isUnreachable ? 'EHOSTUNREACH' : isRefused ? 'ECONNREFUSED' : 'NETWORK_ERROR',
+          dica: customDica
         }
       };
     }

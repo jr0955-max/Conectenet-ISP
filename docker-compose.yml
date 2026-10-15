@@ -7,12 +7,15 @@ services:
       dockerfile: Dockerfile
     container_name: agroisp-billing
     restart: unless-stopped
+    # Para Proxmox / Bare-Metal Linux com comunicacao direta ao MikroTik via LAN:
+    # Se descomentar network_mode: host, comente 'ports' e 'networks'
+    # network_mode: host
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - MIKROTIK_HOST=192.168.88.1
+      - MIKROTIK_HOST=192.168.1.120
       - MIKROTIK_PORT=8728
       - MIKROTIK_USER=admin_isp
       - MIKROTIK_PASSWORD=sua_senha_mikrotik_aqui
