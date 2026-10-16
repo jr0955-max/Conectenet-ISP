@@ -17,7 +17,7 @@ import {
   Copy,
   Check
 } from 'lucide-react';
-import { Client, Plan, Tower } from '../types/index.js';
+import { Client, Plan, Tower, MikrotikServer } from '../types/index.js';
 
 interface ClientModalProps {
   isOpen: boolean;
@@ -26,7 +26,9 @@ interface ClientModalProps {
   clientToEdit?: Client | null;
   plans: Plan[];
   towers: Tower[];
+  servers?: MikrotikServer[];
   onOpenNewPlan?: () => void;
+  onOpenNewServer?: () => void;
 }
 
 export const ClientModal: React.FC<ClientModalProps> = ({
@@ -36,7 +38,9 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   clientToEdit,
   plans,
   towers,
-  onOpenNewPlan
+  servers = [],
+  onOpenNewPlan,
+  onOpenNewServer
 }) => {
   const [name, setName] = useState('');
   const [document, setDocument] = useState('');
@@ -44,6 +48,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [ruralLocation, setRuralLocation] = useState('');
+  const [serverId, setServerId] = useState('');
   const [towerId, setTowerId] = useState('');
   const [planId, setPlanId] = useState('');
   const [dueDay, setDueDay] = useState(10);
@@ -56,9 +61,27 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
 
+  const effectiveServers: MikrotikServer[] = servers.length > 0 ? servers : [
+    {
+      id: 'srv-1',
+      name: 'Servidor Sede (RB Principal 192.168.1.120)',
+      host: '192.168.1.120',
+      port: 8728,
+      user: 'admin_isp',
+      interfaceName: 'ether2',
+      defaultProfile: 'prof_15m_padrao',
+      blockProfile: 'prof_corte_bloqueado',
+      location: 'Sede Central (Porta 01 - WAN)',
+      isDefault: true,
+      status: 'connected'
+    }
+  ];
+
   const effectiveTowers = towers.length > 0 ? towers : [
     { id: 'tower-1', name: 'Torre Serra Azul (Principal)', location: 'Serra do Cruzeiro', frequency: '5.8 GHz', capacity: 120, activeClients: 42, status: 'online' as const, coordinates: '-15.78, -47.92', ipGateway: '10.50.1.1' },
-    { id: 'tower-2', name: 'POP Fazenda Boa Esperança', location: 'Silo Central', frequency: '5.8 GHz', capacity: 80, activeClients: 28, status: 'online' as const, coordinates: '-15.82, -47.88', ipGateway: '10.50.2.1' }
+    { id: 'tower-2', name: 'POP Fazenda Boa Esperança', location: 'Silo Central', frequency: '5.8 GHz', capacity: 80, activeClients: 28, status: 'online' as const, coordinates: '-15.82, -47.88', ipGateway: '10.50.2.1' },
+    { id: 'tower-3', name: 'Repetidora Morro das Pedras', location: 'Estrada Vicinal Km 24', frequency: '5.8 GHz / Enlace PTP', capacity: 60, activeClients: 15, status: 'online' as const, coordinates: '-15.85, -47.96', ipGateway: '10.50.3.1' },
+    { id: 'tower-4', name: 'OLT Central Vila Santa Maria', location: 'Distrito Central (Fibra FTTH)', frequency: 'GPON / EPON 2.5G', capacity: 256, activeClients: 85, status: 'online' as const, coordinates: '-15.76, -47.91', ipGateway: '10.50.4.1' }
   ];
 
   const effectivePlans = plans.length > 0 ? plans : [
@@ -78,6 +101,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       setEmail(clientToEdit.email || '');
       setAddress(clientToEdit.address || '');
       setRuralLocation(clientToEdit.ruralLocation || '');
+      setServerId(clientToEdit.serverId || effectiveServers.find(s => s.isDefault)?.id || effectiveServers[0]?.id || 'srv-1');
       setTowerId(clientToEdit.towerId || effectiveTowers[0]?.id || 'tower-1');
       setPlanId(clientToEdit.planId || effectivePlans[0]?.id || 'plan-2');
       setDueDay(clientToEdit.dueDay || 10);
@@ -92,6 +116,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       setEmail('');
       setAddress('');
       setRuralLocation('');
+      setServerId(effectiveServers.find(s => s.isDefault)?.id || effectiveServers[0]?.id || 'srv-1');
       setTowerId(effectiveTowers[0]?.id || 'tower-1');
       setPlanId(effectivePlans[0]?.id || 'plan-2');
       setDueDay(10);
@@ -100,7 +125,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       setIpAddress('');
       setMacAddress('');
     }
-  }, [clientToEdit, isOpen, towers, plans]);
+  }, [clientToEdit, isOpen, towers, plans, servers]);
 
   // Auto-generate suggested PPPoE username from Name if not manually customized
   const handleNameChange = (val: string) => {
@@ -169,6 +194,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
         email: email.trim(),
         address: address.trim(),
         ruralLocation: ruralLocation.trim() || 'Zona Rural',
+        serverId: serverId || effectiveServers[0]?.id,
         towerId: towerId || effectiveTowers[0]?.id,
         planId: planId || effectivePlans[0]?.id,
         dueDay: Number(dueDay),
@@ -287,45 +313,90 @@ export const ClientModal: React.FC<ClientModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Endereço & Torre */}
+          {/* Section 2: Servidor MikroTik & Torre / POP (Rede em Bridge) */}
           <div className="space-y-3 pt-2 border-t border-slate-800">
-            <h4 className="font-semibold text-slate-300 text-xs flex items-center space-x-1.5 uppercase tracking-wider text-[11px]">
-              <span>2. Endereço, Bairro & Torre / POP de Conexão</span>
-            </h4>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <h4 className="font-semibold text-slate-300 text-xs flex items-center space-x-1.5 uppercase tracking-wider text-[11px]">
+                <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                <span>2. Servidor MikroTik & Ponto de Conexão (Rede em Bridge)</span>
+              </h4>
+              <span className="text-[10px] text-emerald-400 font-mono bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 rounded-md inline-block w-fit">
+                Bridge: Servidor + Torre por Localidade
+              </span>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Servidor MikroTik Concentrador PPPoE */}
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Bairro / Região / Ponto de Referência</label>
-                <input
-                  type="text"
-                  value={ruralLocation}
-                  onChange={(e) => setRuralLocation(e.target.value)}
-                  placeholder="Ex: Bairro Centro ou Setor Norte - Quadra 04"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-300 font-medium text-xs">
+                    Servidor MikroTik (Concentrador PPPoE) <span className="text-emerald-400">*</span>
+                  </label>
+                  {onOpenNewServer && (
+                    <button
+                      type="button"
+                      onClick={onOpenNewServer}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center space-x-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Cadastrar RB</span>
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={serverId}
+                  onChange={(e) => setServerId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/40 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition font-mono text-xs"
+                >
+                  {effectiveServers.map(srv => (
+                    <option key={srv.id} value={srv.id}>
+                      {srv.name} ({srv.host})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  RB onde o Secret PPPoE será criado automaticamente via API RouterOS.
+                </p>
               </div>
 
+              {/* Torre / POP de Conexão */}
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Torre / POP de Conexão</label>
+                <label className="block text-slate-300 font-medium mb-1 text-xs">
+                  Torre / Ponto de Acesso (Bridge / POP)
+                </label>
                 <select
                   value={towerId}
                   onChange={(e) => setTowerId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition text-xs"
                 >
                   {effectiveTowers.map(tower => (
                     <option key={tower.id} value={tower.id}>{tower.name} ({tower.frequency})</option>
                   ))}
                 </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Torre / AP ou repetidora que atende o cliente na rede em bridge.
+                </p>
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-slate-300 font-medium mb-1">Endereço Completo</label>
+              <div>
+                <label className="block text-slate-300 font-medium mb-1 text-xs">Bairro / Região / Localidade</label>
+                <input
+                  type="text"
+                  value={ruralLocation}
+                  onChange={(e) => setRuralLocation(e.target.value)}
+                  placeholder="Ex: Bairro Centro ou Fazenda Boa Esperança"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1 text-xs">Endereço Completo</label>
                 <input
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="Estrada Vicinal 3, Lote 45, Sede"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition text-xs"
                 />
               </div>
             </div>
@@ -454,7 +525,9 @@ export const ClientModal: React.FC<ClientModalProps> = ({
               <div className="flex items-center justify-between text-slate-400">
                 <span className="flex items-center space-x-1.5 text-emerald-400 font-semibold">
                   <Terminal className="w-3.5 h-3.5" />
-                  <span>Comando MikroTik RouterOS (/ppp secret)</span>
+                  <span>
+                    Comando MikroTik [{effectiveServers.find(s => s.id === serverId)?.name || 'RB Concentrador'} - {effectiveServers.find(s => s.id === serverId)?.host || '192.168.1.120'}]
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -474,8 +547,11 @@ export const ClientModal: React.FC<ClientModalProps> = ({
               <div className="p-2 bg-slate-900 rounded border border-slate-800 text-emerald-300 break-all select-all text-[10px] leading-relaxed">
                 {`/ppp secret add name="${pppoeUsername}" password="${pppoePassword}" profile="${effectivePlans.find(p => p.id === planId)?.profileName || 'default'}" service=pppoe comment="${name || 'Cliente'} - ${ruralLocation || 'Zona Rural'}"${ipAddress ? ` remote-address=${ipAddress}` : ''}${macAddress ? ` caller-id=${macAddress}` : ''}`}
               </div>
-              <p className="text-[10px] text-slate-500 font-sans">
-                💡 Ao salvar o formulário, este comando é enviado automaticamente para a API do seu MikroTik (Porta 8728).
+              <p className="text-[10px] text-emerald-400 font-sans flex items-center space-x-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>
+                  Ao salvar, este comando será enviado <strong>automaticamente via API (Porta 8728)</strong> para o MikroTik <strong>{effectiveServers.find(s => s.id === serverId)?.host || '192.168.1.120'}</strong> e o login será criado na hora!
+                </span>
               </p>
             </div>
           )}

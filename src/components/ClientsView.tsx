@@ -24,12 +24,13 @@ import {
   Copy,
   Check
 } from 'lucide-react';
-import { Client, Plan, Tower, Invoice, CompanySettings } from '../types/index.js';
+import { Client, Plan, Tower, Invoice, CompanySettings, MikrotikServer } from '../types/index.js';
 
 interface ClientsViewProps {
   clients: Client[];
   plans: Plan[];
   towers: Tower[];
+  servers?: MikrotikServer[];
   invoices: Invoice[];
   onOpenNewClient: () => void;
   onEditClient: (client: Client) => void;
@@ -44,6 +45,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   clients,
   plans,
   towers,
+  servers = [],
   invoices,
   onOpenNewClient,
   onEditClient,
@@ -55,6 +57,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
+  const [serverFilter, setServerFilter] = useState<string>('all');
   const [towerFilter, setTowerFilter] = useState<string>('all');
   const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
   const [copiedBatch, setCopiedBatch] = useState(false);
@@ -93,8 +96,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
     const matchesStatus = statusFilter === 'all' || client.status === statusFilter;
     const matchesTower = towerFilter === 'all' || client.towerId === towerFilter;
+    const matchesServer = serverFilter === 'all' || client.serverId === serverFilter;
 
-    return matchesSearch && matchesStatus && matchesTower;
+    return matchesSearch && matchesStatus && matchesTower && matchesServer;
   });
 
   const getPlanName = (planId: string) => {
@@ -103,6 +107,12 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   const getTowerName = (towerId: string) => {
     return towers.find(t => t.id === towerId)?.name || 'Torre Principal';
+  };
+
+  const getServerName = (serverId?: string) => {
+    if (!serverId) return servers[0]?.name || 'RB Sede (192.168.1.120)';
+    const s = servers.find(item => item.id === serverId);
+    return s ? `${s.name} (${s.host})` : 'RB Sede';
   };
 
   const getClientLatestInvoice = (clientId: string) => {
@@ -163,13 +173,13 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         </div>
 
         {/* Filters and Search Input */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
           {/* Search */}
-          <div className="sm:col-span-2 relative">
+          <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
               type="text"
-              placeholder="Buscar por nome, CPF/CNPJ, PPPoE ou endereço/bairro..."
+              placeholder="Buscar por nome, CPF, PPPoE..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
@@ -186,6 +196,20 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
               <option value="all">Todos os Status ({clients.length})</option>
               <option value="active">Somente Ativos ({clients.filter(c => c.status === 'active').length})</option>
               <option value="blocked">Bloqueados / Corte ({clients.filter(c => c.status === 'blocked').length})</option>
+            </select>
+          </div>
+
+          {/* Servidor MikroTik Filter */}
+          <div>
+            <select
+              value={serverFilter}
+              onChange={(e) => setServerFilter(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition font-mono"
+            >
+              <option value="all">Todas as RBs MikroTik</option>
+              {servers.map(srv => (
+                <option key={srv.id} value={srv.id}>RB: {srv.name} ({srv.host})</option>
+              ))}
             </select>
           </div>
 
@@ -260,15 +284,19 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Location & Tower */}
+                      {/* Location & Tower & Server */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center text-slate-200">
                           <MapPin className="w-3.5 h-3.5 text-emerald-400 mr-1 shrink-0" />
-                          <span className="truncate max-w-[200px]">{client.ruralLocation}</span>
+                          <span className="truncate max-w-[200px] font-medium">{client.ruralLocation}</span>
                         </div>
                         <div className="text-[11px] text-cyan-400 flex items-center mt-0.5">
-                          <Radio className="w-3 h-3 mr-1" />
-                          <span>{getTowerName(client.towerId)}</span>
+                          <Radio className="w-3 h-3 mr-1 shrink-0" />
+                          <span className="truncate max-w-[190px]">{getTowerName(client.towerId)}</span>
+                        </div>
+                        <div className="text-[10px] text-emerald-400 font-mono flex items-center mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 shrink-0 inline-block"></span>
+                          <span className="truncate max-w-[210px]">{getServerName(client.serverId)}</span>
                         </div>
                       </td>
 

@@ -1,4 +1,4 @@
-import { Client, Plan, Tower, Invoice, MikrotikConfig, GatewayConfig, AuditLog, SystemStats, User, ServiceOrder, Contract, Equipment, FiscalInvoice, CompanySettings, Carne } from '../src/types/index.js';
+import { Client, Plan, Tower, Invoice, MikrotikConfig, MikrotikServer, GatewayConfig, AuditLog, SystemStats, User, ServiceOrder, Contract, Equipment, FiscalInvoice, CompanySettings, Carne } from '../src/types/index.js';
 import { initialUsers } from './auth.js';
 
 // Planos do Provedor de Internet (Fibra Óptica & Rádio Wireless)
@@ -106,12 +106,34 @@ export const initialTowers: Tower[] = [
 // Clientes reais do Provedor (Inicialmente limpo para bancada e produção)
 export const initialClients: Client[] = [];
 
+export const initialMikrotikServers: MikrotikServer[] = [
+  {
+    id: 'srv-1',
+    name: 'Servidor Sede (RB Principal 192.168.1.120)',
+    host: '192.168.1.120',
+    port: 8728,
+    user: 'admin_isp',
+    password: '',
+    interfaceName: 'ether2',
+    defaultProfile: 'prof_15m_padrao',
+    blockProfile: 'prof_corte_bloqueado',
+    location: 'Sede Central (Porta 01 - WAN: 192.168.1.120)',
+    isDefault: true,
+    status: 'connected',
+    routerModel: 'MikroTik RouterBOARD (RB)',
+    routerOsVersion: 'RouterOS v7.14',
+    uptime: '12d 04h',
+    cpuLoad: 2,
+    lastSync: new Date().toISOString()
+  }
+];
+
 export const initialMikrotikConfig: MikrotikConfig = {
   host: '192.168.1.120',
   port: 8728, // Standard RouterOS API port
   user: 'admin_isp',
-  blockProfile: 'bloqueados',
-  defaultProfile: 'default',
+  blockProfile: 'prof_corte_bloqueado',
+  defaultProfile: 'prof_15m_padrao',
   autoKickOnBlock: true,
   status: 'connected',
   isSimulated: false, // Bancada física ativa
@@ -177,6 +199,7 @@ class DatabaseStore {
   public equipments: Equipment[] = [...initialEquipments];
   public fiscalInvoices: FiscalInvoice[] = [...initialFiscalInvoices];
   public mikrotikConfig: MikrotikConfig = { ...initialMikrotikConfig };
+  public servers: MikrotikServer[] = [...initialMikrotikServers];
   public gatewayConfig: GatewayConfig = { ...initialGatewayConfig };
   public companySettings: CompanySettings = { ...initialCompanySettings };
   public auditLogs: AuditLog[] = [];

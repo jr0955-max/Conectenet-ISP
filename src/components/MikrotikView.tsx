@@ -17,13 +17,19 @@ import {
   Wifi, 
   ArrowUpDown,
   Send,
-  Zap
+  Zap,
+  Plus,
+  Trash2,
+  Globe,
+  Shield,
+  MapPin
 } from 'lucide-react';
-import { MikrotikConfig, ActiveSession, Client, Plan, CompanySettings } from '../types/index.js';
+import { MikrotikConfig, ActiveSession, Client, Plan, CompanySettings, MikrotikServer } from '../types/index.js';
 import { SystemBackupCard } from './SystemBackupCard.js';
 
 interface MikrotikViewProps {
   config: MikrotikConfig | null;
+  servers?: MikrotikServer[];
   activeSessions: ActiveSession[];
   clients: Client[];
   plans: Plan[];
@@ -36,6 +42,7 @@ interface MikrotikViewProps {
 
 export const MikrotikView: React.FC<MikrotikViewProps> = ({
   config,
+  servers = [],
   activeSessions,
   clients,
   plans,
@@ -45,13 +52,104 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   onTestConnection,
   onRefresh
 }) => {
-  const [subTab, setSubTab] = useState<'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('connect');
+  const [subTab, setSubTab] = useState<'servers' | 'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('servers');
   const [copiedScript, setCopiedScript] = useState(false);
   const [copiedBancadaScript, setCopiedBancadaScript] = useState(false);
   const [copiedQuickFix, setCopiedQuickFix] = useState(false);
   const [copiedProxmoxCmds, setCopiedProxmoxCmds] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [isTesting, setIsTesting] = useState(false);
+
+  const effectiveServers: MikrotikServer[] = servers && servers.length > 0 ? servers : [
+    {
+      id: 'srv-1',
+      name: 'Servidor Sede (RB Principal 192.168.1.120)',
+      host: config?.host || '192.168.1.120',
+      port: config?.port || 8728,
+      user: config?.user || 'admin_isp',
+      interfaceName: 'ether2',
+      defaultProfile: config?.defaultProfile || 'prof_15m_padrao',
+      blockProfile: config?.blockProfile || 'prof_corte_bloqueado',
+      location: 'Sede Central (Porta 01 - WAN: 192.168.1.120)',
+      isDefault: true,
+      status: config?.status || 'connected'
+    }
+  ];
+
+  const [isAddServerOpen, setIsAddServerOpen] = useState(false);
+  const [newSrvName, setNewSrvName] = useState('');
+  const [newSrvHost, setNewSrvHost] = useState('');
+  const [newSrvPort, setNewSrvPort] = useState(8728);
+  const [newSrvUser, setNewSrvUser] = useState('admin_isp');
+  const [newSrvPass, setNewSrvPass] = useState('');
+  const [newSrvLocation, setNewSrvLocation] = useState('');
+  const [newSrvInterface, setNewSrvInterface] = useState('ether2');
+  const [serverTestResults, setServerTestResults] = useState<Record<string, any>>({});
+  const [testingServerId, setTestingServerId] = useState<string | null>(null);
+  const [isSavingServer, setIsSavingServer] = useState(false);
+
+  const handleTestServer = async (srv: MikrotikServer) => {
+    setTestingServerId(srv.id);
+    try {
+      const res = await fetch(`/api/mikrotik/servers/${srv.id}/test`, { method: 'POST' });
+      const data = await res.json();
+      setServerTestResults(prev => ({ ...prev, [srv.id]: data }));
+      onRefresh();
+    } catch (err: any) {
+      setServerTestResults(prev => ({ ...prev, [srv.id]: { success: false, message: err.message } }));
+    } finally {
+      setTestingServerId(null);
+    }
+  };
+
+  const handleCreateServer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSrvName.trim() || !newSrvHost.trim()) return;
+
+    try {
+      setIsSavingServer(true);
+      const res = await fetch('/api/mikrotik/servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newSrvName.trim(),
+          host: newSrvHost.trim(),
+          port: Number(newSrvPort) || 8728,
+          user: newSrvUser.trim() || 'admin_isp',
+          password: newSrvPass,
+          location: newSrvLocation.trim() || 'Localidade / POP',
+          interfaceName: newSrvInterface.trim() || 'ether2',
+          defaultProfile: 'prof_15m_padrao',
+          blockProfile: 'prof_corte_bloqueado'
+        })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      setIsAddServerOpen(false);
+      setNewSrvName('');
+      setNewSrvHost('');
+      setNewSrvPass('');
+      setNewSrvLocation('');
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao cadastrar servidor');
+    } finally {
+      setIsSavingServer(false);
+    }
+  };
+
+  const handleDeleteServer = async (id: string) => {
+    if (!confirm('Deseja realmente remover este servidor MikroTik?')) return;
+    try {
+      const res = await fetch(`/api/mikrotik/servers/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao remover servidor');
+    }
+  };
 
   // Config form state
   const [host, setHost] = useState(config?.host || '192.168.1.120');
@@ -169,6 +267,21 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-xl p-3">
         <div className="flex space-x-1">
           <button
+            onClick={() => setSubTab('servers')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+              subTab === 'servers'
+                ? 'bg-emerald-600 text-white shadow'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5" />
+            <span>Concentradores / RBs</span>
+            <span className="ml-1 px-1.5 py-0.2 bg-emerald-700/60 text-white rounded-full text-[10px]">
+              {effectiveServers.length}
+            </span>
+          </button>
+
+          <button
             onClick={() => setSubTab('active')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
               subTab === 'active'
@@ -243,6 +356,272 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
           <span>Sincronizar MikroTik</span>
         </button>
       </div>
+
+      {/* TAB 0: CONCENTRADORES / SERVIDORES MIKROTIK (REDE EM BRIDGE) */}
+      {subTab === 'servers' && (
+        <div className="space-y-4">
+          {/* Header Info Banner */}
+          <div className="p-4 bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <Server className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                    <span>Concentradores MikroTik por Localidade</span>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-800/60">
+                      Rede em Bridge
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Sua rede opera em Bridge com uma RB em cada localidade. Cadastre os concentradores para provisionar automaticamente os clientes em cada ponto.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsAddServerOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-950 flex items-center justify-center space-x-2 transition shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cadastrar Nova RB</span>
+            </button>
+          </div>
+
+          {/* List of Servers */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {effectiveServers.map(srv => {
+              const clientsOnServer = clients.filter(c => c.serverId === srv.id || (!c.serverId && srv.isDefault));
+              const isTestingThis = testingServerId === srv.id;
+              const result = serverTestResults[srv.id];
+
+              return (
+                <div key={srv.id} className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 shadow-sm space-y-4 transition">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start space-x-3">
+                      <div className="p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-cyan-400">
+                        <Server className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h4 className="font-bold text-white text-sm">{srv.name}</h4>
+                          {srv.isDefault && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                              RB Padrão
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400 flex items-center mt-0.5">
+                          <MapPin className="w-3 h-3 text-emerald-400 mr-1" />
+                          <span>{srv.location}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-1.5">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center space-x-1 ${
+                        srv.status === 'connected' 
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' 
+                          : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${srv.status === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                        <span>{srv.status === 'connected' ? 'API 8728 Online' : 'Pendente Teste'}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Details grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 bg-slate-950/70 border border-slate-800/80 rounded-xl text-xs font-mono">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Host / IP:</span>
+                      <span className="text-cyan-300 font-semibold">{srv.host}:{srv.port}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Usuário API:</span>
+                      <span className="text-slate-200">{srv.user}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Interface PPPoE:</span>
+                      <span className="text-slate-200">{srv.interfaceName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Profile Padrão:</span>
+                      <span className="text-emerald-400">{srv.defaultProfile}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Profile Corte:</span>
+                      <span className="text-red-400">{srv.blockProfile}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Clientes Ativos:</span>
+                      <span className="text-amber-400 font-bold">{clientsOnServer.length} assinantes</span>
+                    </div>
+                  </div>
+
+                  {/* Test Result Message if available */}
+                  {result && (
+                    <div className={`p-3 rounded-xl border text-xs ${
+                      result.success 
+                        ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-200' 
+                        : 'bg-red-950/50 border-red-500/40 text-red-200'
+                    }`}>
+                      <div className="flex items-center space-x-1.5 font-bold mb-0.5">
+                        {result.success ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-red-400" />}
+                        <span>{result.success ? 'Conexão Bem-Sucedida!' : 'Falha no Teste'}</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed">{result.message}</p>
+                      {result.details && (
+                        <div className="mt-1 text-[10px] font-mono opacity-80">
+                          Modelo: {result.details.model} | Versão: {result.details.version} | Uptime: {result.details.uptime}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      disabled={isTestingThis}
+                      onClick={() => handleTestServer(srv)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isTestingThis ? 'animate-spin' : ''}`} />
+                      <span>{isTestingThis ? 'Testando API...' : 'Testar Comunicação (API)'}</span>
+                    </button>
+
+                    {effectiveServers.length > 1 && !srv.isDefault && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteServer(srv.id)}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-slate-700/60 hover:border-red-500/30 text-xs transition"
+                        title="Remover Servidor"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Modal / Card to Add Server */}
+          {isAddServerOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="font-bold text-white text-sm flex items-center space-x-2">
+                    <Server className="w-4 h-4 text-emerald-400" />
+                    <span>Cadastrar Nova RB Concentradora</span>
+                  </h3>
+                  <button onClick={() => setIsAddServerOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+                </div>
+
+                <form onSubmit={handleCreateServer} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Nome do Servidor / RB</label>
+                    <input
+                      type="text"
+                      required
+                      value={newSrvName}
+                      onChange={e => setNewSrvName(e.target.value)}
+                      placeholder="Ex: Servidor POP Fazenda ou RB Morro das Pedras"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">IP / Host do MikroTik</label>
+                      <input
+                        type="text"
+                        required
+                        value={newSrvHost}
+                        onChange={e => setNewSrvHost(e.target.value)}
+                        placeholder="Ex: 192.168.1.121"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Porta API</label>
+                      <input
+                        type="number"
+                        value={newSrvPort}
+                        onChange={e => setNewSrvPort(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Usuário API (RouterOS)</label>
+                      <input
+                        type="text"
+                        value={newSrvUser}
+                        onChange={e => setNewSrvUser(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Senha API</label>
+                      <input
+                        type="password"
+                        value={newSrvPass}
+                        onChange={e => setNewSrvPass(e.target.value)}
+                        placeholder="Senha do usuário na RB"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Localidade / POP</label>
+                      <input
+                        type="text"
+                        value={newSrvLocation}
+                        onChange={e => setNewSrvLocation(e.target.value)}
+                        placeholder="Ex: Setor Leste - Silo"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Interface Clientes</label>
+                      <input
+                        type="text"
+                        value={newSrvInterface}
+                        onChange={e => setNewSrvInterface(e.target.value)}
+                        placeholder="Ex: ether2 ou bridge1"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddServerOpen(false)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingServer}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow transition disabled:opacity-50"
+                    >
+                      {isSavingServer ? 'Salvando...' : 'Salvar e Conectar RB'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 1: ACTIVE SESSIONS (/ppp active) */}
       {subTab === 'active' && (

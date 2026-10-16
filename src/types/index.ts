@@ -32,6 +32,7 @@ export interface Client {
   pppoePassword: string;
   ipAddress?: string;
   macAddress?: string;
+  serverId?: string; // ID do Concentrador MikroTik correspondente
   status: 'active' | 'blocked' | 'cancelled' | 'pending';
   signalDbm?: number; // e.g. -58 dBm for wireless clients
   createdAt: string;
@@ -117,6 +118,26 @@ export interface ActiveSession {
   interfaceName: string;
   signalDbm: number;
   towerName: string;
+}
+
+export interface MikrotikServer {
+  id: string;
+  name: string; // Ex: "Servidor Central - Sede"
+  host: string; // "192.168.1.120"
+  port: number; // 8728
+  user: string; // "admin_isp"
+  password?: string;
+  interfaceName: string; // "ether2" ou "bridge1"
+  defaultProfile: string; // "prof_15m_padrao" ou "default"
+  blockProfile: string; // "prof_corte_bloqueado" ou "bloqueados"
+  location: string; // "Sede Central (Porta 01 - WAN)"
+  isDefault?: boolean;
+  status: 'connected' | 'disconnected' | 'testing' | 'error';
+  routerModel?: string;
+  routerOsVersion?: string;
+  uptime?: string;
+  cpuLoad?: number;
+  lastSync?: string;
 }
 
 export interface MikrotikConfig {

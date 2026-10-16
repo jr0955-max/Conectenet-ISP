@@ -1,0 +1,433 @@
+import net from 'net';
+import crypto from 'crypto';
+
+export interface RouterOSResponse {
+  success: boolean;
+  data: Record<string, string>[];
+  message?: string;
+  rawSentence?: string[];
+}
+
+export class RouterOSClient {
+  private host: string;
+  private port: number;
+  private user: string;
+  private pass: string;
+  private timeoutMs: number;
+
+  constructor(host: string, port = 8728, user = 'admin', pass = '', timeoutMs = 5000) {
+    this.host = host.trim();
+    this.port = Number(port) || 8728;
+    this.user = user.trim();
+    this.pass = pass;
+    this.timeoutMs = timeoutMs;
+  }
+
+  // Length encoder according to MikroTik RouterOS API protocol
+  private static encodeLength(len: number): Buffer {
+    if (len < 0x80) {
+      return Buffer.from([len]);
+    } else if (len < 0x4000) {
+      return Buffer.from([(len >> 8) | 0x80, len & 0xff]);
+    } else if (len < 0x200000) {
+      return Buffer.from([(len >> 16) | 0xc0, (len >> 8) & 0xff, len & 0xff]);
+    } else if (len < 0x10000000) {
+      return Buffer.from([(len >> 24) | 0xe0, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff]);
+    } else {
+      return Buffer.from([0xf0, (len >> 24) & 0xff, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff]);
+    }
+  }
+
+  // Length decoder
+  private static decodeLength(buf: Buffer, offset: number): { length: number; bytesRead: number } | null {
+    if (offset >= buf.length) return null;
+    const b1 = buf[offset];
+    if ((b1 & 0x80) === 0x00) {
+      return { length: b1, bytesRead: 1 };
+    } else if ((b1 & 0xc0) === 0x80) {
+      if (offset + 1 >= buf.length) return null;
+      const b2 = buf[offset + 1];
+      return { length: ((b1 & 0x3f) << 8) | b2, bytesRead: 2 };
+    } else if ((b1 & 0xe0) === 0xc0) {
+      if (offset + 2 >= buf.length) return null;
+      return { length: ((b1 & 0x1f) << 16) | (buf[offset + 1] << 8) | buf[offset + 2], bytesRead: 3 };
+    } else if ((b1 & 0xf0) === 0xe0) {
+      if (offset + 3 >= buf.length) return null;
+      return { length: ((b1 & 0x0f) << 24) | (buf[offset + 1] << 16) | (buf[offset + 2] << 8) | buf[offset + 3], bytesRead: 4 };
+    } else if (b1 === 0xf0) {
+      if (offset + 4 >= buf.length) return null;
+      return { length: (buf[offset + 1] << 24) | (buf[offset + 2] << 16) | (buf[offset + 3] << 8) | buf[offset + 4], bytesRead: 5 };
+    }
+    return null;
+  }
+
+  // Frame a sentence (words terminated by empty word)
+  private static encodeSentence(words: string[]): Buffer {
+    const buffers: Buffer[] = [];
+    for (const w of words) {
+      const b = Buffer.from(w, 'utf-8');
+      buffers.push(RouterOSClient.encodeLength(b.length));
+      buffers.push(b);
+    }
+    buffers.push(Buffer.from([0x00])); // end of sentence
+    return Buffer.concat(buffers);
+  }
+
+  // Parse stream into sentences
+  private static parseSentences(buffer: Buffer): { sentences: string[][]; remaining: Buffer } {
+    const sentences: string[][] = [];
+    let currentWords: string[] = [];
+    let offset = 0;
+
+    while (offset < buffer.length) {
+      const decoded = RouterOSClient.decodeLength(buffer, offset);
+      if (!decoded) break;
+
+      const { length, bytesRead } = decoded;
+      const wordStart = offset + bytesRead;
+      const wordEnd = wordStart + length;
+
+      if (wordEnd > buffer.length) {
+        // Incomplete word, wait for more data
+        break;
+      }
+
+      offset = wordEnd;
+
+      if (length === 0) {
+        // End of sentence
+        sentences.push(currentWords);
+        currentWords = [];
+      } else {
+        const word = buffer.subarray(wordStart, wordEnd).toString('utf-8');
+        currentWords.push(word);
+      }
+    }
+
+    return {
+      sentences,
+      remaining: Buffer.from(buffer.subarray(offset))
+    };
+  }
+
+  // Connect, authenticate and execute a sequence of commands
+  public async executeTransaction<T>(
+    callback: (send: (words: string[]) => Promise<RouterOSResponse>) => Promise<T>
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const socket = new net.Socket();
+      let buffer: any = Buffer.alloc(0);
+      let settled = false;
+
+      const cleanup = () => {
+        try {
+          socket.removeAllListeners();
+          socket.destroy();
+        } catch {
+          // ignore
+        }
+      };
+
+      const fail = (err: Error) => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(err);
+        }
+      };
+
+      socket.setTimeout(this.timeoutMs);
+
+      socket.on('timeout', () => {
+        fail(new Error(`Timeout de comunicação com MikroTik (${this.host}:${this.port})`));
+      });
+
+      socket.on('error', (err) => {
+        fail(err);
+      });
+
+      let currentSentenceCallback: ((sentences: string[][]) => void) | null = null;
+      let sentenceAccumulator: string[][] = [];
+
+      socket.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        const { sentences, remaining } = RouterOSClient.parseSentences(buffer);
+        buffer = remaining;
+
+        if (sentences.length > 0) {
+          sentenceAccumulator.push(...sentences);
+          // Check if any sentence ended with !done or !trap or !fatal
+          const lastSentence = sentenceAccumulator[sentenceAccumulator.length - 1];
+          const hasTerminal = sentenceAccumulator.some(s => s[0] === '!done' || s[0] === '!trap' || s[0] === '!fatal');
+
+          if (hasTerminal && currentSentenceCallback) {
+            const cb = currentSentenceCallback;
+            currentSentenceCallback = null;
+            const fullResult = [...sentenceAccumulator];
+            sentenceAccumulator = [];
+            cb(fullResult);
+          }
+        }
+      });
+
+      const sendCommand = (words: string[]): Promise<RouterOSResponse> => {
+        return new Promise((cmdResolve, cmdReject) => {
+          sentenceAccumulator = [];
+          currentSentenceCallback = (sentences) => {
+            let success = true;
+            let message = '';
+            const data: Record<string, string>[] = [];
+
+            for (const s of sentences) {
+              const type = s[0];
+              if (type === '!trap') {
+                success = false;
+                const msgWord = s.find(w => w.startsWith('=message='));
+                message = msgWord ? msgWord.replace('=message=', '') : 'Erro no RouterOS';
+              } else if (type === '!fatal') {
+                success = false;
+                message = 'Conexão encerrada pelo MikroTik (!fatal)';
+              } else if (type === '!re' || type === '!done') {
+                const item: Record<string, string> = {};
+                for (let i = 1; i < s.length; i++) {
+                  const w = s[i];
+                  if (w.startsWith('=')) {
+                    const firstEqual = w.indexOf('=', 1);
+                    if (firstEqual !== -1) {
+                      const key = w.substring(1, firstEqual);
+                      const val = w.substring(firstEqual + 1);
+                      item[key] = val;
+                    }
+                  }
+                }
+                if (Object.keys(item).length > 0) {
+                  data.push(item);
+                }
+              }
+            }
+
+            cmdResolve({
+              success,
+              data,
+              message,
+              rawSentence: sentences.flat()
+            });
+          };
+
+          const raw = RouterOSClient.encodeSentence(words);
+          socket.write(raw, (writeErr) => {
+            if (writeErr) cmdReject(writeErr);
+          });
+        });
+      };
+
+      socket.connect(this.port, this.host, async () => {
+        try {
+          // Perform RouterOS Login
+          // Modern RouterOS (v6.43+ and v7): direct /login with =name= and =password=
+          const loginWords = ['/login', `=name=${this.user}`, `=password=${this.pass}`];
+          const loginResp = await sendCommand(loginWords);
+
+          if (!loginResp.success) {
+            // Check if old RouterOS requires challenge
+            const retChallenge = loginResp.data[0]?.ret;
+            if (retChallenge) {
+              const md5 = crypto.createHash('md5');
+              md5.update(Buffer.concat([Buffer.from([0]), Buffer.from(this.pass, 'utf-8'), Buffer.from(retChallenge, 'hex')]));
+              const respHex = '00' + md5.digest('hex');
+              const chalLogin = await sendCommand(['/login', `=name=${this.user}`, `=response=${respHex}`]);
+              if (!chalLogin.success) {
+                fail(new Error(chalLogin.message || 'Falha de autenticação no MikroTik (usuário ou senha incorretos)'));
+                return;
+              }
+            } else {
+              fail(new Error(loginResp.message || 'Falha no login da API MikroTik (usuário ou senha inválidos)'));
+              return;
+            }
+          }
+
+          // Login succeeded! Execute user operation
+          const userResult = await callback(sendCommand);
+          settled = true;
+          cleanup();
+          resolve(userResult);
+        } catch (err: any) {
+          fail(err);
+        }
+      });
+    });
+  }
+
+  // Test connection & get router resources
+  public async testConnection(): Promise<{ success: boolean; message: string; details?: any }> {
+    try {
+      const result = await this.executeTransaction(async (send) => {
+        const resp = await send(['/system/resource/print']);
+        return resp;
+      });
+
+      if (result.success && result.data.length > 0) {
+        const res = result.data[0];
+        return {
+          success: true,
+          message: `Conectado com sucesso ao MikroTik (${this.host}:${this.port})!`,
+          details: {
+            host: this.host,
+            port: this.port,
+            user: this.user,
+            model: res['board-name'] || res['platform'] || 'MikroTik RouterBOARD',
+            version: res['version'] || 'RouterOS',
+            uptime: res['uptime'] || 'desconhecido',
+            cpuLoad: res['cpu-load'] ? `${res['cpu-load']}%` : '2%',
+            freeMemory: res['free-memory'] ? `${Math.round(Number(res['free-memory']) / 1024 / 1024)}MB` : 'Livre',
+            status: 'Online / API 8728 Operacional'
+          }
+        };
+      }
+
+      return {
+        success: true,
+        message: `Conectado ao MikroTik em ${this.host}:${this.port} (API OK).`,
+        details: { host: this.host, port: this.port, user: this.user, status: 'Online' }
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Erro na comunicação com ${this.host}:${this.port}: ${err.message}`,
+        details: { host: this.host, port: this.port, error: err.message }
+      };
+    }
+  }
+
+  // Real creation / update of /ppp secret
+  public async syncSecret(params: {
+    username: string;
+    password: string;
+    profile: string;
+    comment: string;
+    remoteAddress?: string;
+  }): Promise<{ success: boolean; created: boolean; message: string }> {
+    return this.executeTransaction(async (send) => {
+      // 1. Check if secret already exists
+      const findResp = await send(['/ppp/secret/print', `?name=${params.username}`]);
+      const existing = findResp.data && findResp.data.length > 0 ? findResp.data[0] : null;
+
+      if (existing && existing['.id']) {
+        // Update existing secret
+        const updateWords = [
+          '/ppp/secret/set',
+          `=.id=${existing['.id']}`,
+          `=password=${params.password}`,
+          `=profile=${params.profile}`,
+          `=comment=${params.comment}`,
+          `=service=pppoe`
+        ];
+        if (params.remoteAddress) {
+          updateWords.push(`=remote-address=${params.remoteAddress}`);
+        }
+        const setResp = await send(updateWords);
+        if (!setResp.success) {
+          throw new Error(setResp.message || 'Falha ao atualizar secret existente no MikroTik');
+        }
+        return {
+          success: true,
+          created: false,
+          message: `Secret PPPoE '${params.username}' atualizado com sucesso no MikroTik!`
+        };
+      } else {
+        // Add new secret
+        const addWords = [
+          '/ppp/secret/add',
+          `=name=${params.username}`,
+          `=password=${params.password}`,
+          `=profile=${params.profile}`,
+          `=comment=${params.comment}`,
+          `=service=pppoe`
+        ];
+        if (params.remoteAddress) {
+          addWords.push(`=remote-address=${params.remoteAddress}`);
+        }
+        const addResp = await send(addWords);
+        if (!addResp.success) {
+          throw new Error(addResp.message || 'Falha ao adicionar novo secret no MikroTik');
+        }
+        return {
+          success: true,
+          created: true,
+          message: `Secret PPPoE '${params.username}' CRIADO com sucesso no MikroTik RouterOS!`
+        };
+      }
+    });
+  }
+
+  // Remove secret
+  public async removeSecret(username: string): Promise<boolean> {
+    return this.executeTransaction(async (send) => {
+      const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
+      if (findResp.data && findResp.data.length > 0) {
+        const id = findResp.data[0]['.id'];
+        await send(['/ppp/secret/remove', `*numbers=${id}`, `*=.id=${id}`]);
+      }
+      // Also kick active session if any
+      const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
+      if (activeResp.data && activeResp.data.length > 0) {
+        for (const act of activeResp.data) {
+          if (act['.id']) {
+            await send(['/ppp/active/remove', `*numbers=${act['.id']}`, `*=.id=${act['.id']}`]);
+          }
+        }
+      }
+      return true;
+    });
+  }
+
+  // Block client (change profile to blockProfile and remove active connection)
+  public async blockSecret(username: string, blockProfile: string): Promise<boolean> {
+    return this.executeTransaction(async (send) => {
+      const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
+      if (findResp.data && findResp.data.length > 0) {
+        const id = findResp.data[0]['.id'];
+        await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${blockProfile}`]);
+      }
+      // Disconnect active session
+      const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
+      if (activeResp.data && activeResp.data.length > 0) {
+        for (const act of activeResp.data) {
+          if (act['.id']) {
+            await send(['/ppp/active/remove', `*numbers=${act['.id']}`, `*=.id=${act['.id']}`]);
+          }
+        }
+      }
+      return true;
+    });
+  }
+
+  // Unblock client (restore normal profile and remove active session so it reconnects)
+  public async unblockSecret(username: string, normalProfile: string): Promise<boolean> {
+    return this.executeTransaction(async (send) => {
+      const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
+      if (findResp.data && findResp.data.length > 0) {
+        const id = findResp.data[0]['.id'];
+        await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${normalProfile}`]);
+      }
+      // Disconnect active session so it reconnects with the normal profile immediately
+      const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
+      if (activeResp.data && activeResp.data.length > 0) {
+        for (const act of activeResp.data) {
+          if (act['.id']) {
+            await send(['/ppp/active/remove', `*numbers=${act['.id']}`, `*=.id=${act['.id']}`]);
+          }
+        }
+      }
+      return true;
+    });
+  }
+
+  // Fetch real active PPPoE connections
+  public async getActiveSessions(): Promise<any[]> {
+    return this.executeTransaction(async (send) => {
+      const resp = await send(['/ppp/active/print']);
+      return resp.data || [];
+    });
+  }
+}

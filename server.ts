@@ -5,7 +5,7 @@ import { db } from './server/db.js';
 import { mikrotikService } from './server/mikrotik.js';
 import { paymentGatewayService } from './server/paymentGateway.js';
 import { authService, authenticateToken, authorizeRole, AuthenticatedRequest } from './server/auth.js';
-import { Client, Plan, Invoice, User, UserRole, Carne } from './src/types/index.js';
+import { Client, Plan, Invoice, User, UserRole, Carne, MikrotikServer } from './src/types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -326,7 +326,7 @@ app.get('/api/stats', (req, res) => {
 // 2. CLIENTS (CRUD) & PPPoE AUTOMATION
 // -----------------------------------------------------------------------------
 app.get('/api/clients', (req, res) => {
-  res.json({ clients: db.clients, plans: db.plans, towers: db.towers });
+  res.json({ clients: db.clients, plans: db.plans, towers: db.towers, servers: db.servers });
 });
 
 app.post('/api/clients', async (req, res) => {
@@ -341,6 +341,8 @@ app.post('/api/clients', async (req, res) => {
       return res.status(400).json({ error: `Usuário PPPoE '${data.pppoeUsername}' já está em uso.` });
     }
 
+    const targetServer = data.serverId ? db.servers.find(s => s.id === data.serverId) : (db.servers.find(s => s.isDefault) || db.servers[0]);
+
     const newClient: Client = {
       id: `cli-${Date.now()}`,
       name: data.name,
@@ -350,6 +352,7 @@ app.post('/api/clients', async (req, res) => {
       address: data.address || '',
       ruralLocation: data.ruralLocation || 'Zona Rural',
       towerId: data.towerId || db.towers[0].id,
+      serverId: targetServer?.id || db.servers[0]?.id,
       planId: data.planId || db.plans[0].id,
       dueDay: Number(data.dueDay) || 10,
       pppoeUsername: data.pppoeUsername,
@@ -364,7 +367,7 @@ app.post('/api/clients', async (req, res) => {
     db.clients.unshift(newClient);
 
     // Automatically create /ppp secret in MikroTik RouterOS
-    await mikrotikService.syncSecret(newClient);
+    const mikrotikResult = await mikrotikService.syncSecret(newClient);
 
     // Auto-generate current month initial invoice for the new client
     const plan = db.plans.find(p => p.id === newClient.planId) || db.plans[0];
@@ -395,11 +398,11 @@ app.post('/api/clients', async (req, res) => {
     db.addAuditLog({
       type: 'client',
       action: 'CLIENT_CREATE',
-      message: `Novo cliente cadastrado: ${newClient.name} (${newClient.pppoeUsername}) - Secret criada no MikroTik.`,
-      status: 'success'
+      message: `Novo cliente cadastrado: ${newClient.name} (${newClient.pppoeUsername}) - Alocado na RB '${targetServer?.name || 'Sede'}'.`,
+      status: mikrotikResult.success ? 'success' : 'warning'
     });
 
-    res.status(201).json({ client: newClient, invoice: initialInvoice });
+    res.status(201).json({ client: newClient, invoice: initialInvoice, mikrotikResult });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Erro ao criar cliente' });
   }
@@ -417,9 +420,9 @@ app.put('/api/clients/:id', async (req, res) => {
     db.clients[clientIndex] = updatedData;
 
     // Sync updated secret in MikroTik RouterOS
-    await mikrotikService.syncSecret(updatedData);
+    const mikrotikResult = await mikrotikService.syncSecret(updatedData);
 
-    res.json({ client: updatedData });
+    res.json({ client: updatedData, mikrotikResult });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Erro ao atualizar cliente' });
   }
@@ -563,12 +566,118 @@ app.post('/api/clients/:id/toggle-block', async (req, res) => {
 // 3. MIKROTIK ROUTEROS API & REAL-TIME SESSIONS
 // -----------------------------------------------------------------------------
 app.get('/api/mikrotik/config', (req, res) => {
-  res.json({ config: db.mikrotikConfig, history: mikrotikService.getHistory() });
+  res.json({ 
+    config: db.mikrotikConfig, 
+    servers: db.servers, 
+    history: mikrotikService.getHistory() 
+  });
 });
 
 app.post('/api/mikrotik/config', async (req, res) => {
   db.mikrotikConfig = { ...db.mikrotikConfig, ...req.body };
-  res.json({ config: db.mikrotikConfig });
+  res.json({ config: db.mikrotikConfig, servers: db.servers });
+});
+
+// MikroTik Servers (Concentradores PPPoE por Localidade / Bridge)
+app.get('/api/mikrotik/servers', (req, res) => {
+  res.json({ servers: db.servers });
+});
+
+app.post('/api/mikrotik/servers', async (req, res) => {
+  try {
+    const data: Partial<MikrotikServer> = req.body;
+    if (!data.name || !data.host) {
+      return res.status(400).json({ error: 'Nome e IP/Host do MikroTik são obrigatórios.' });
+    }
+
+    const newServer: MikrotikServer = {
+      id: `srv-${Date.now()}`,
+      name: data.name,
+      host: data.host.trim(),
+      port: Number(data.port) || 8728,
+      user: data.user?.trim() || 'admin_isp',
+      password: data.password || '',
+      interfaceName: data.interfaceName || 'ether2',
+      defaultProfile: data.defaultProfile || 'prof_15m_padrao',
+      blockProfile: data.blockProfile || 'prof_corte_bloqueado',
+      location: data.location || 'Localidade / POP',
+      isDefault: Boolean(data.isDefault) || db.servers.length === 0,
+      status: 'testing'
+    };
+
+    if (newServer.isDefault) {
+      db.servers.forEach(s => s.isDefault = false);
+    }
+
+    db.servers.push(newServer);
+
+    // Auto-test newly added server
+    const testResult = await mikrotikService.testServer(newServer);
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'SERVER_CREATE',
+      message: `Novo concentrador MikroTik adicionado: '${newServer.name}' (${newServer.host}:${newServer.port})`,
+      status: testResult.success ? 'success' : 'warning'
+    });
+
+    res.status(201).json({ server: newServer, testResult });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao adicionar servidor MikroTik' });
+  }
+});
+
+app.put('/api/mikrotik/servers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const index = db.servers.findIndex(s => s.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Servidor MikroTik não encontrado.' });
+    }
+
+    const updated: MikrotikServer = { ...db.servers[index], ...req.body };
+    if (updated.isDefault) {
+      db.servers.forEach(s => {
+        if (s.id !== id) s.isDefault = false;
+      });
+    }
+
+    db.servers[index] = updated;
+
+    res.json({ server: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao atualizar servidor MikroTik' });
+  }
+});
+
+app.delete('/api/mikrotik/servers/:id', (req, res) => {
+  const { id } = req.params;
+  if (db.servers.length <= 1) {
+    return res.status(400).json({ error: 'O sistema deve manter ao menos um servidor MikroTik cadastrado.' });
+  }
+
+  const srv = db.servers.find(s => s.id === id);
+  db.servers = db.servers.filter(s => s.id !== id);
+
+  db.addAuditLog({
+    type: 'mikrotik',
+    action: 'SERVER_DELETE',
+    message: `Servidor MikroTik '${srv?.name || id}' removido.`,
+    status: 'warning'
+  });
+
+  res.json({ success: true, message: 'Servidor removido com sucesso.' });
+});
+
+app.post('/api/mikrotik/servers/:id/test', async (req, res) => {
+  const { id } = req.params;
+  const srv = db.servers.find(s => s.id === id);
+  if (!srv) {
+    return res.status(404).json({ error: 'Servidor não encontrado.' });
+  }
+
+  const result = await mikrotikService.testServer(srv);
+  res.json(result);
 });
 
 app.post('/api/mikrotik/test', async (req, res) => {

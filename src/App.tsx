@@ -29,6 +29,7 @@ import {
   Invoice, 
   ActiveSession, 
   MikrotikConfig, 
+  MikrotikServer,
   SystemStats, 
   AuditLog,
   User,
@@ -52,6 +53,7 @@ export default function App() {
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [mikrotikConfig, setMikrotikConfig] = useState<MikrotikConfig | null>(null);
+  const [mikrotikServers, setMikrotikServers] = useState<MikrotikServer[]>([]);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
@@ -257,7 +259,7 @@ export default function App() {
   // Fetch all initial data
   const loadAllData = useCallback(async () => {
     try {
-      const [statsRes, clientsRes, invoicesRes, activeRes, logsRes, ordersRes, contractsRes, eqRes, fiscalRes, settingsRes] = await Promise.all([
+      const [statsRes, clientsRes, invoicesRes, activeRes, logsRes, ordersRes, contractsRes, eqRes, fiscalRes, settingsRes, serversRes] = await Promise.all([
         fetch('/api/stats').then(r => r.json()).catch(() => ({})),
         fetch('/api/clients').then(r => r.json()).catch(() => ({})),
         fetch('/api/invoices').then(r => r.json()).catch(() => ({})),
@@ -267,11 +269,14 @@ export default function App() {
         fetch('/api/contracts').then(r => r.json()).catch(() => ({})),
         fetch('/api/equipments').then(r => r.json()).catch(() => ({})),
         fetch('/api/fiscal-invoices').then(r => r.json()).catch(() => ({})),
-        fetch('/api/company-settings').then(r => r.json()).catch(() => ({}))
+        fetch('/api/company-settings').then(r => r.json()).catch(() => ({})),
+        fetch('/api/mikrotik/servers').then(r => r.json()).catch(() => ({}))
       ]);
 
       if (statsRes.stats) setStats(statsRes.stats);
       if (statsRes.mikrotikConfig) setMikrotikConfig(statsRes.mikrotikConfig);
+      if (serversRes.servers) setMikrotikServers(serversRes.servers);
+      else if (clientsRes.servers) setMikrotikServers(clientsRes.servers);
       if (clientsRes.clients) setClients(clientsRes.clients);
       if (clientsRes.plans) setPlans(clientsRes.plans);
       if (clientsRes.towers) setTowers(clientsRes.towers);
@@ -346,7 +351,13 @@ export default function App() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
-        showNotification(`Cliente '${clientData.name}' atualizado no MikroTik com sucesso!`);
+        if (data.mikrotikResult?.success) {
+          showNotification(data.mikrotikResult.message || `Cliente '${clientData.name}' atualizado na RB com sucesso!`, 'success');
+        } else if (data.mikrotikResult?.message) {
+          showNotification(data.mikrotikResult.message, 'info');
+        } else {
+          showNotification(`Cliente '${clientData.name}' atualizado com sucesso!`, 'success');
+        }
       } else {
         const res = await fetch('/api/clients', {
           method: 'POST',
@@ -356,7 +367,13 @@ export default function App() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
-        showNotification(`Novo cliente criado! Secret PPPoE provisionada no MikroTik.`);
+        if (data.mikrotikResult?.success) {
+          showNotification(data.mikrotikResult.message || `Novo cliente cadastrado e provisionado no MikroTik!`, 'success');
+        } else if (data.mikrotikResult?.message) {
+          showNotification(data.mikrotikResult.message, 'info');
+        } else {
+          showNotification(`Novo cliente criado! Secret PPPoE provisionada no MikroTik.`, 'success');
+        }
       }
 
       setIsClientModalOpen(false);
@@ -670,6 +687,7 @@ export default function App() {
               clients={clients}
               plans={plans}
               towers={towers}
+              servers={mikrotikServers}
               invoices={invoices}
               onOpenNewClient={() => {
                 setClientToEdit(null);
@@ -750,6 +768,7 @@ export default function App() {
             ) : (
               <MikrotikView
                 config={mikrotikConfig}
+                servers={mikrotikServers}
                 activeSessions={activeSessions}
                 clients={clients}
                 plans={plans}
@@ -887,9 +906,14 @@ export default function App() {
         clientToEdit={clientToEdit}
         plans={plans}
         towers={towers}
+        servers={mikrotikServers}
         onOpenNewPlan={() => {
           setPlanToEdit(null);
           setIsPlanModalOpen(true);
+        }}
+        onOpenNewServer={() => {
+          setActiveTab('mikrotik');
+          setIsClientModalOpen(false);
         }}
       />
 
