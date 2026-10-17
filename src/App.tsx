@@ -22,6 +22,8 @@ import { InventoryView } from './components/InventoryView.js';
 import { FiscalView } from './components/FiscalView.js';
 import { CompanySettingsView } from './components/CompanySettingsView.js';
 import { BoletoModal } from './components/BoletoModal.js';
+import { TrafficView } from './components/TrafficView.js';
+import { ActiveClientsView } from './components/ActiveClientsView.js';
 import { 
   Client, 
   Plan, 
@@ -444,12 +446,12 @@ export default function App() {
   };
 
   // Kick active session in MikroTik
-  const handleDisconnectSession = async (username: string) => {
+  const handleDisconnectSession = async (username: string, serverId?: string) => {
     try {
       const res = await fetch('/api/mikrotik/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
+        body: JSON.stringify({ username, serverId })
       });
       const data = await res.json();
       showNotification(data.message || `Sessão de ${username} desconectada.`);
@@ -535,9 +537,48 @@ export default function App() {
     await loadAllData();
   };
 
-  const handleAddTower = (newTower: Partial<Tower>) => {
-    setTowers(prev => [newTower as Tower, ...prev]);
-    showNotification(`Torre '${newTower.name}' cadastrada com sucesso!`);
+  const handleAddTower = async (newTower: Partial<Tower>) => {
+    try {
+      const res = await fetch('/api/towers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTower)
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      showNotification(`POP/Torre '${newTower.name}' cadastrado com sucesso!`, 'success');
+      await loadAllData();
+    } catch (err: any) {
+      showNotification(err.message || 'Erro ao cadastrar torre', 'error');
+    }
+  };
+
+  const handleEditTower = async (tower: Tower) => {
+    try {
+      const res = await fetch(`/api/towers/${tower.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tower)
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      showNotification(`POP/Torre '${tower.name}' atualizado com sucesso!`, 'success');
+      await loadAllData();
+    } catch (err: any) {
+      showNotification(err.message || 'Erro ao atualizar torre', 'error');
+    }
+  };
+
+  const handleDeleteTower = async (towerId: string) => {
+    try {
+      const res = await fetch(`/api/towers/${towerId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      showNotification(data.message || 'Torre excluída com sucesso!', 'success');
+      await loadAllData();
+    } catch (err: any) {
+      showNotification(err.message || 'Erro ao excluir torre', 'error');
+    }
   };
 
   const handleImportBatch = async (rawText: string) => {
@@ -837,6 +878,20 @@ export default function App() {
               towers={towers}
               clients={clients}
               onAddTower={handleAddTower}
+              onEditTower={handleEditTower}
+              onDeleteTower={handleDeleteTower}
+            />
+          )}
+
+          {activeTab === 'traffic' && (
+            <TrafficView servers={mikrotikServers} />
+          )}
+
+          {activeTab === 'active_clients' && (
+            <ActiveClientsView
+              servers={mikrotikServers}
+              onDisconnectSession={handleDisconnectSession}
+              onToggleBlockClient={handleToggleBlockClient}
             />
           )}
 

@@ -411,16 +411,15 @@ export class RouterOSClient {
       const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
       if (findResp.data && findResp.data.length > 0) {
         const id = findResp.data[0]['.id'];
-        await send(['/ppp/secret/remove', `*=.id=${id}`, `*numbers=${id}`, `*name=${username}`]);
-        // Also send standard .id without asterisk
-        await send(['/ppp/secret/remove', `*numbers=${id}`]);
+        await send(['/ppp/secret/remove', `*=.id=${id}`]);
+        await send(['/ppp/secret/remove', `=.id=${id}`]);
       }
       // Also kick active session if any
       const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
       if (activeResp.data && activeResp.data.length > 0) {
         for (const act of activeResp.data) {
           if (act['.id']) {
-            await send(['/ppp/active/remove', `*numbers=${act['.id']}`]);
+            await send(['/ppp/active/remove', `=.id=${act['.id']}`]);
           }
         }
       }
@@ -428,24 +427,36 @@ export class RouterOSClient {
     });
   }
 
-  // Block client (change profile to blockProfile and remove active connection)
+  // Block client (disable secret OR set profile to blockProfile and drop active session)
   public async blockSecret(username: string, blockProfile: string): Promise<boolean> {
     return this.executeTransaction(async (send) => {
       const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
       if (findResp.data && findResp.data.length > 0) {
         const id = findResp.data[0]['.id'];
-        let setResp = await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${blockProfile}`]);
+        // In RouterOS, setting disabled=yes guarantees immediate refusal upon reconnect
+        // and setting profile=blockProfile allows captive portal / walled-garden if configured
+        let setResp = await send([
+          '/ppp/secret/set',
+          `=.id=${id}`,
+          `=profile=${blockProfile}`,
+          `=disabled=yes`
+        ]);
         if (!setResp.success) {
-          // If block profile not found, try 'default'
-          await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=default`]);
+          // If custom block profile not found, set default and disable
+          await send([
+            '/ppp/secret/set',
+            `=.id=${id}`,
+            `=profile=default`,
+            `=disabled=yes`
+          ]);
         }
       }
-      // Disconnect active session
+      // Disconnect active session so client is immediately blocked
       const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
       if (activeResp.data && activeResp.data.length > 0) {
         for (const act of activeResp.data) {
           if (act['.id']) {
-            await send(['/ppp/active/remove', `*numbers=${act['.id']}`]);
+            await send(['/ppp/active/remove', `=.id=${act['.id']}`]);
           }
         }
       }
@@ -453,23 +464,33 @@ export class RouterOSClient {
     });
   }
 
-  // Unblock client (restore normal profile and remove active session so it reconnects)
+  // Unblock client (restore normal profile, enable secret and drop active session so it reconnects)
   public async unblockSecret(username: string, normalProfile: string): Promise<boolean> {
     return this.executeTransaction(async (send) => {
       const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
       if (findResp.data && findResp.data.length > 0) {
         const id = findResp.data[0]['.id'];
-        let setResp = await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${normalProfile}`]);
+        let setResp = await send([
+          '/ppp/secret/set',
+          `=.id=${id}`,
+          `=profile=${normalProfile}`,
+          `=disabled=no`
+        ]);
         if (!setResp.success) {
-          await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=default`]);
+          await send([
+            '/ppp/secret/set',
+            `=.id=${id}`,
+            `=profile=default`,
+            `=disabled=no`
+          ]);
         }
       }
-      // Disconnect active session so it reconnects with the normal profile immediately
+      // Disconnect active session if any was lingering
       const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
       if (activeResp.data && activeResp.data.length > 0) {
         for (const act of activeResp.data) {
           if (act['.id']) {
-            await send(['/ppp/active/remove', `*numbers=${act['.id']}`, `*=.id=${act['.id']}`]);
+            await send(['/ppp/active/remove', `=.id=${act['.id']}`]);
           }
         }
       }
@@ -482,6 +503,28 @@ export class RouterOSClient {
     return this.executeTransaction(async (send) => {
       const resp = await send(['/ppp/active/print']);
       return resp.data || [];
+    });
+  }
+
+  // Disconnect active session by username or id
+  public async disconnectActiveSession(identifier: string): Promise<boolean> {
+    return this.executeTransaction(async (send) => {
+      // Try search by username
+      const activeResp = await send(['/ppp/active/print', `?name=${identifier}`]);
+      if (activeResp.data && activeResp.data.length > 0) {
+        for (const act of activeResp.data) {
+          if (act['.id']) {
+            await send(['/ppp/active/remove', `=.id=${act['.id']}`]);
+          }
+        }
+        return true;
+      }
+      // If identifier is an id (e.g. *1)
+      if (identifier.startsWith('*')) {
+        await send(['/ppp/active/remove', `=.id=${identifier}`]);
+        return true;
+      }
+      return false;
     });
   }
 
@@ -499,8 +542,7 @@ export class RouterOSClient {
         const id = existing['.id'];
         const updateWords = [
           '/ppp/profile/set',
-          `*numbers=${id}`,
-          `*=.id=${id}`,
+          `=.id=${id}`,
           `=rate-limit=${params.rateLimit}`
         ];
         if (params.comment) {
@@ -508,8 +550,7 @@ export class RouterOSClient {
         }
         const setResp = await send(updateWords);
         if (!setResp.success) {
-          // Retry with standard syntax
-          await send(['/ppp/profile/set', `*numbers=${id}`, `=rate-limit=${params.rateLimit}`]);
+          await send(['/ppp/profile/set', `=.id=${id}`, `=rate-limit=${params.rateLimit}`]);
         }
         return {
           success: true,
@@ -544,8 +585,7 @@ export class RouterOSClient {
       const findResp = await send(['/ppp/profile/print', `?name=${name}`]);
       if (findResp.data && findResp.data.length > 0) {
         const id = findResp.data[0]['.id'];
-        await send(['/ppp/profile/remove', `*numbers=${id}`, `*=.id=${id}`]);
-        await send(['/ppp/profile/remove', `*numbers=${id}`]);
+        await send(['/ppp/profile/remove', `=.id=${id}`]);
       }
       return true;
     });
@@ -555,6 +595,14 @@ export class RouterOSClient {
   public async getProfiles(): Promise<any[]> {
     return this.executeTransaction(async (send) => {
       const resp = await send(['/ppp/profile/print']);
+      return resp.data || [];
+    });
+  }
+
+  // Query network interfaces and traffic counters
+  public async getInterfaces(): Promise<any[]> {
+    return this.executeTransaction(async (send) => {
+      const resp = await send(['/interface/print']);
       return resp.data || [];
     });
   }

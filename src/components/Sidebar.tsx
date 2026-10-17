@@ -83,6 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     cadastros: true,
     financeiro: true,
     rede: true,
+    monitoramento: true,
     atendimento: true,
     fiscal: false,
     estoque: false,
@@ -365,7 +366,65 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <span>MikroTik RouterOS</span>
                     <span className="px-1.5 py-0.2 text-[10px] font-mono rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                      {stats?.onlineSessions || '0'} online
+                      RBs
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* MENU ABAIXO DO MENU REDE & PROVEDOR: TRÁFEGO & CLIENTE ON/OFF */}
+            <div className="pt-2">
+              <button
+                onClick={() => toggleSection('monitoramento')}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 tracking-wider uppercase transition"
+              >
+                <span className="flex items-center space-x-1.5">
+                  <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Tráfego & Sessões</span>
+                </span>
+                {openSections.monitoramento ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                )}
+              </button>
+
+              {openSections.monitoramento && (
+                <div className="mt-1 space-y-0.5 pl-2 border-l border-slate-800 ml-3">
+                  {/* Sub menu Tráfego */}
+                  <button
+                    onClick={() => handleTabClick('traffic')}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                      activeTab === 'traffic'
+                        ? 'bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <span className="flex items-center space-x-1.5">
+                      <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Tráfego RBs</span>
+                    </span>
+                    <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-emerald-500/20 text-emerald-300">
+                      Live
+                    </span>
+                  </button>
+
+                  {/* Sub menu Cliente On/Off */}
+                  <button
+                    onClick={() => handleTabClick('active_clients')}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                      activeTab === 'active_clients'
+                        ? 'bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <span className="flex items-center space-x-1.5">
+                      <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Cliente On/Off</span>
+                    </span>
+                    <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-cyan-500/20 text-cyan-300">
+                      {stats?.onlineSessions || '0'} on
                     </span>
                   </button>
                 </div>

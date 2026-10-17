@@ -22,7 +22,8 @@ import {
   Unlock,
   Terminal,
   Copy,
-  Check
+  Check,
+  RefreshCw
 } from 'lucide-react';
 import { Client, Plan, Tower, Invoice, CompanySettings, MikrotikServer } from '../types/index.js';
 
@@ -351,14 +352,20 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                           <button
                             onClick={() => onToggleBlockClient(client.id)}
                             disabled={isLoading}
-                            title={isBlocked ? "Desbloquear no MikroTik (restaurar conexão)" : "Bloquear no MikroTik (inadimplência)"}
+                            title={isBlocked ? "Desbloquear no MikroTik (restaurar conexão e profile normal)" : "Bloquear no MikroTik (corte por inadimplência)"}
                             className={`p-1.5 rounded-lg border transition ${
                               isBlocked 
                                 ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30' 
                                 : 'bg-red-500/20 border-red-500/40 text-red-300 hover:bg-red-500/30'
                             }`}
                           >
-                            {isBlocked ? <ShieldCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                            {isLoading ? (
+                              <RefreshCw className="w-4 h-4 animate-spin text-amber-300" />
+                            ) : isBlocked ? (
+                              <ShieldCheck className="w-4 h-4" />
+                            ) : (
+                              <ShieldAlert className="w-4 h-4" />
+                            )}
                           </button>
 
                           {/* WhatsApp Direct */}

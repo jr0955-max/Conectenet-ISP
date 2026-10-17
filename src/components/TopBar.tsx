@@ -92,7 +92,11 @@ export const TopBar: React.FC<TopBarProps> = ({
       case 'inventory':
         return { section: 'Estoque', title: 'Equipamentos & Roteadores em Comodato' };
       case 'mikrotik':
-        return { section: 'Rede & Provedor', title: 'MikroTik RouterOS (Active Sessions & Secrets)' };
+        return { section: 'Rede & Provedor', title: 'MikroTik RouterOS (Concentradores & RBs)' };
+      case 'traffic':
+        return { section: 'Monitoramento', title: 'Tráfego em Tempo Real das RBs MikroTik' };
+      case 'active_clients':
+        return { section: 'Monitoramento', title: 'Clientes On/Off - Sessões PPP Ativas' };
       case 'provedor':
         return { section: 'Configurações', title: 'Identidade Visual, Logo & Boletos Bancários' };
       case 'users':

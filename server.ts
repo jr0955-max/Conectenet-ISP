@@ -5,7 +5,7 @@ import { db } from './server/db.js';
 import { mikrotikService } from './server/mikrotik.js';
 import { paymentGatewayService } from './server/paymentGateway.js';
 import { authService, authenticateToken, authorizeRole, AuthenticatedRequest } from './server/auth.js';
-import { Client, Plan, Invoice, User, UserRole, Carne, MikrotikServer } from './src/types/index.js';
+import { Client, Plan, Tower, Invoice, User, UserRole, Carne, MikrotikServer } from './src/types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -785,17 +785,35 @@ app.post('/api/mikrotik/test', async (req, res) => {
   res.json(result);
 });
 
+app.get('/api/mikrotik/traffic', async (req, res) => {
+  try {
+    const data = await mikrotikService.getAllRbsTraffic();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao obter tráfego das RBs' });
+  }
+});
+
+app.get('/api/mikrotik/active-connections', async (req, res) => {
+  try {
+    const data = await mikrotikService.getAllRbsActiveConnections();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao obter conexões ativas' });
+  }
+});
+
 app.get('/api/mikrotik/active', (req, res) => {
   const sessions = mikrotikService.getActiveSessions();
   res.json({ sessions, count: sessions.length });
 });
 
 app.post('/api/mikrotik/disconnect', async (req, res) => {
-  const { username } = req.body;
+  const { username, serverId } = req.body;
   if (!username) {
     return res.status(400).json({ error: 'Username não fornecido.' });
   }
-  const result = await mikrotikService.kickSession(username);
+  const result = await mikrotikService.kickSession(username, serverId);
   res.json(result);
 });
 
@@ -1312,6 +1330,91 @@ app.post('/api/plans/sync-all', async (req, res) => {
 });
 
 app.get('/api/towers', (req, res) => res.json({ towers: db.towers }));
+
+app.post('/api/towers', (req, res) => {
+  try {
+    const { name, location, frequency, capacity, ipGateway, coordinates, status } = req.body;
+    if (!name || !location) {
+      return res.status(400).json({ error: 'Nome e localização da torre/POP são obrigatórios.' });
+    }
+    const newTower: Tower = {
+      id: `tower-${Date.now()}`,
+      name,
+      location,
+      frequency: frequency || '5.8 GHz (AirMAX AC)',
+      capacity: Number(capacity) || 100,
+      activeClients: 0,
+      status: (status as any) || 'online',
+      coordinates: coordinates || '-15.8000, -47.9000',
+      ipGateway: ipGateway || '10.50.5.1'
+    };
+    db.towers.unshift(newTower);
+    db.addAuditLog({
+      type: 'system',
+      action: 'TOWER_CREATE',
+      message: `Novo POP/Torre cadastrado: '${newTower.name}' em ${newTower.location}`,
+      status: 'success'
+    });
+    db.save();
+    res.status(201).json({ tower: newTower });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao cadastrar torre/POP' });
+  }
+});
+
+app.put('/api/towers/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const index = db.towers.findIndex(t => t.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Torre/POP não encontrado.' });
+    }
+    const updatedTower: Tower = {
+      ...db.towers[index],
+      ...req.body,
+      capacity: req.body.capacity !== undefined ? Number(req.body.capacity) : db.towers[index].capacity
+    };
+    db.towers[index] = updatedTower;
+    db.addAuditLog({
+      type: 'system',
+      action: 'TOWER_UPDATE',
+      message: `Torre/POP atualizado: '${updatedTower.name}' (${updatedTower.location})`,
+      status: 'info'
+    });
+    db.save();
+    res.json({ tower: updatedTower });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao atualizar torre/POP' });
+  }
+});
+
+app.delete('/api/towers/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const tower = db.towers.find(t => t.id === id);
+    if (!tower) {
+      return res.status(404).json({ error: 'Torre/POP não encontrado.' });
+    }
+    const clientsUsing = db.clients.filter(c => c.towerId === id);
+    if (clientsUsing.length > 0) {
+      return res.status(400).json({ 
+        error: `Não é possível excluir o POP/Torre '${tower.name}' pois existem ${clientsUsing.length} clientes vinculados a ele. Reatribua os clientes antes de excluir.` 
+      });
+    }
+    db.towers = db.towers.filter(t => t.id !== id);
+    db.addAuditLog({
+      type: 'system',
+      action: 'TOWER_DELETE',
+      message: `POP/Torre removido: '${tower.name}'`,
+      status: 'warning'
+    });
+    db.save();
+    res.json({ success: true, message: `Torre '${tower.name}' excluída com sucesso.` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao excluir torre/POP' });
+  }
+});
+
 app.get('/api/audit-logs', (req, res) => res.json({ logs: db.auditLogs }));
 
 // -----------------------------------------------------------------------------
