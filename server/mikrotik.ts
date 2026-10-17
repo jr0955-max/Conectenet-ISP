@@ -384,6 +384,102 @@ class MikrotikService {
     });
   }
 
+  // Sync a single plan profile with MikroTik servers
+  public async syncPlanProfile(plan: Plan, targetServerId?: string): Promise<{ success: boolean; message: string; results?: any[] }> {
+    const serversToSync = targetServerId 
+      ? db.servers.filter(s => s.id === targetServerId)
+      : (db.servers.length > 0 ? db.servers : [this.resolveServer()]);
+
+    const results: any[] = [];
+    const rateLimit = `${plan.speedUp}M/${plan.speedDown}M`;
+
+    for (const server of serversToSync) {
+      try {
+        const ros = this.getClient(server);
+        const res = await ros.syncProfile({
+          name: plan.profileName,
+          rateLimit,
+          comment: `${plan.name} (${plan.speedDown}M down / ${plan.speedUp}M up)`
+        });
+        this.logCommand(
+          `/ppp/profile/${res.created ? 'add' : 'set'} name="${plan.profileName}" rate-limit="${rateLimit}"`,
+          `!done (${res.message})`,
+          true,
+          server.name
+        );
+        results.push({ server: server.name, host: server.host, success: true, message: res.message });
+      } catch (err: any) {
+        this.logCommand(
+          `/ppp/profile/add name="${plan.profileName}" rate-limit="${rateLimit}"`,
+          `!trap error="${err.message}"`,
+          false,
+          server.name
+        );
+        results.push({ server: server.name, host: server.host, success: false, message: err.message });
+      }
+    }
+
+    const anySuccess = results.some(r => r.success);
+    return {
+      success: anySuccess,
+      message: anySuccess 
+        ? `Profile '${plan.profileName}' (${rateLimit}) sincronizado com sucesso no MikroTik!`
+        : `Erro ao sincronizar profile '${plan.profileName}': ${results.map(r => r.message).join(', ')}`,
+      results
+    };
+  }
+
+  // Remove plan profile from MikroTik servers
+  public async removePlanProfile(profileName: string, targetServerId?: string): Promise<{ success: boolean; message: string }> {
+    const serversToSync = targetServerId 
+      ? db.servers.filter(s => s.id === targetServerId)
+      : (db.servers.length > 0 ? db.servers : [this.resolveServer()]);
+
+    for (const server of serversToSync) {
+      try {
+        const ros = this.getClient(server);
+        await ros.removeProfile(profileName);
+        this.logCommand(`/ppp/profile/remove [find name="${profileName}"]`, `!done`, true, server.name);
+      } catch (err: any) {
+        this.logCommand(`/ppp/profile/remove [find name="${profileName}"]`, `!trap ${err.message}`, false, server.name);
+      }
+    }
+
+    return {
+      success: true,
+      message: `Profile '${profileName}' removido dos servidores MikroTik.`
+    };
+  }
+
+  // Sync all plans to MikroTik
+  public async syncAllPlans(targetServerId?: string): Promise<{ success: boolean; count: number; message: string }> {
+    let synced = 0;
+    for (const plan of db.plans) {
+      await this.syncPlanProfile(plan, targetServerId);
+      synced++;
+    }
+    return {
+      success: true,
+      count: synced,
+      message: `Todos os ${synced} planos e perfis de velocidade foram sincronizados nas RBs MikroTik!`
+    };
+  }
+
+  // Fetch real secrets from router
+  public async getSecretsFromRouter(serverId?: string): Promise<{ success: boolean; secrets: any[]; message: string }> {
+    const server = this.resolveServer(serverId);
+    try {
+      const ros = this.getClient(server);
+      const secrets = await ros.executeTransaction(async (send) => {
+        const resp = await send(['/ppp/secret/print']);
+        return resp.data || [];
+      });
+      return { success: true, secrets, message: `${secrets.length} secrets lidos da RB ${server.name}` };
+    } catch (err: any) {
+      return { success: false, secrets: [], message: err.message };
+    }
+  }
+
   // System info
   public getSystemInfo() {
     const defaultServer = this.resolveServer();

@@ -127,7 +127,13 @@ export default function App() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
-        showNotification(`Plano '${planData.name}' atualizado com sucesso!`);
+        if (data.mikrotikSync?.success) {
+          showNotification(`Plano '${planData.name}' atualizado e profile sincronizado no MikroTik!`, 'success');
+        } else if (data.mikrotikSync) {
+          showNotification(`Plano '${planData.name}' atualizado! MikroTik: ${data.mikrotikSync.message}`, 'info');
+        } else {
+          showNotification(`Plano '${planData.name}' atualizado com sucesso!`);
+        }
       } else {
         const res = await fetch('/api/plans', {
           method: 'POST',
@@ -137,7 +143,13 @@ export default function App() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
-        showNotification(`Novo plano '${planData.name}' cadastrado com sucesso!`);
+        if (data.mikrotikSync?.success) {
+          showNotification(`Novo plano '${planData.name}' cadastrado e profile criado no MikroTik!`, 'success');
+        } else if (data.mikrotikSync) {
+          showNotification(`Plano cadastrado! MikroTik: ${data.mikrotikSync.message}`, 'info');
+        } else {
+          showNotification(`Novo plano '${planData.name}' cadastrado com sucesso!`);
+        }
       }
 
       setIsPlanModalOpen(false);
@@ -150,17 +162,29 @@ export default function App() {
 
   const handleDeletePlan = async (planId: string) => {
     const plan = plans.find(p => p.id === planId);
-    if (!window.confirm(`Deseja realmente excluir o plano '${plan?.name}'?`)) return;
+    if (!window.confirm(`Deseja realmente excluir o plano '${plan?.name}'?\nO profile de velocidade no MikroTik também será removido.`)) return;
 
     try {
       const res = await fetch(`/api/plans/${planId}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      showNotification(data.message || 'Plano excluído com sucesso!');
+      showNotification(data.mikrotikSync?.message || data.message || 'Plano excluído com sucesso!');
       await loadAllData();
     } catch (err: any) {
       showNotification(err.message || 'Erro ao excluir plano', 'error');
+    }
+  };
+
+  const handleSyncAllPlans = async () => {
+    try {
+      const res = await fetch('/api/plans/sync-all', { method: 'POST' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      showNotification(data.message || 'Planos sincronizados com MikroTik com sucesso!', 'success');
+      await loadAllData();
+    } catch (err: any) {
+      showNotification(err.message || 'Erro ao sincronizar planos com MikroTik', 'error');
     }
   };
 
@@ -353,8 +377,8 @@ export default function App() {
 
         if (data.mikrotikResult?.success) {
           showNotification(data.mikrotikResult.message || `Cliente '${clientData.name}' atualizado na RB com sucesso!`, 'success');
-        } else if (data.mikrotikResult?.message) {
-          showNotification(data.mikrotikResult.message, 'info');
+        } else if (data.mikrotikResult) {
+          showNotification(data.mikrotikResult.message || `Cliente salvo no banco, mas erro ao sincronizar no MikroTik`, 'error');
         } else {
           showNotification(`Cliente '${clientData.name}' atualizado com sucesso!`, 'success');
         }
@@ -369,8 +393,8 @@ export default function App() {
 
         if (data.mikrotikResult?.success) {
           showNotification(data.mikrotikResult.message || `Novo cliente cadastrado e provisionado no MikroTik!`, 'success');
-        } else if (data.mikrotikResult?.message) {
-          showNotification(data.mikrotikResult.message, 'info');
+        } else if (data.mikrotikResult) {
+          showNotification(data.mikrotikResult.message || `Cliente salvo no banco, mas erro ao conectar no MikroTik`, 'error');
         } else {
           showNotification(`Novo cliente criado! Secret PPPoE provisionada no MikroTik.`, 'success');
         }
@@ -718,6 +742,7 @@ export default function App() {
                 setIsPlanModalOpen(true);
               }}
               onDeletePlan={handleDeletePlan}
+              onSyncAllPlans={handleSyncAllPlans}
             />
           )}
 

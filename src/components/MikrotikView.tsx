@@ -22,7 +22,8 @@ import {
   Trash2,
   Globe,
   Shield,
-  MapPin
+  MapPin,
+  Edit3
 } from 'lucide-react';
 import { MikrotikConfig, ActiveSession, Client, Plan, CompanySettings, MikrotikServer } from '../types/index.js';
 import { SystemBackupCard } from './SystemBackupCard.js';
@@ -84,8 +85,10 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   const [newSrvPass, setNewSrvPass] = useState('');
   const [newSrvLocation, setNewSrvLocation] = useState('');
   const [newSrvInterface, setNewSrvInterface] = useState('ether2');
+  const [editingServer, setEditingServer] = useState<MikrotikServer | null>(null);
   const [serverTestResults, setServerTestResults] = useState<Record<string, any>>({});
   const [testingServerId, setTestingServerId] = useState<string | null>(null);
+  const [importingServerId, setImportingServerId] = useState<string | null>(null);
   const [isSavingServer, setIsSavingServer] = useState(false);
 
   const handleTestServer = async (srv: MikrotikServer) => {
@@ -99,6 +102,49 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
       setServerTestResults(prev => ({ ...prev, [srv.id]: { success: false, message: err.message } }));
     } finally {
       setTestingServerId(null);
+    }
+  };
+
+  const handleImportSecrets = async (srv: MikrotikServer) => {
+    try {
+      setImportingServerId(srv.id);
+      const res = await fetch(`/api/mikrotik/servers/${srv.id}/import-secrets`, { method: 'POST' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      alert(data.message || 'Secrets importados com sucesso!');
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao importar secrets da RB');
+    } finally {
+      setImportingServerId(null);
+    }
+  };
+
+  const handleUpdateServer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingServer) return;
+
+    try {
+      setIsSavingServer(true);
+      const res = await fetch(`/api/mikrotik/servers/${editingServer.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingServer)
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      // Auto-retest with updated credentials
+      const testRes = await fetch(`/api/mikrotik/servers/${editingServer.id}/test`, { method: 'POST' });
+      const testData = await testRes.json();
+      setServerTestResults(prev => ({ ...prev, [editingServer.id]: testData }));
+
+      setEditingServer(null);
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao atualizar servidor MikroTik');
+    } finally {
+      setIsSavingServer(false);
     }
   };
 
@@ -140,11 +186,19 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   };
 
   const handleDeleteServer = async (id: string) => {
-    if (!confirm('Deseja realmente remover este servidor MikroTik?')) return;
+    if (effectiveServers.length <= 1) {
+      alert('Não é possível excluir o único servidor MikroTik cadastrado. O provedor precisa de pelo menos 1 concentrador. Se desejar alterar as configurações dele, use o botão "Editar".');
+      return;
+    }
+    const srv = effectiveServers.find(s => s.id === id);
+    if (!confirm(`Deseja realmente excluir o servidor '${srv?.name || id}' (${srv?.host})?\n\nOs clientes cadastrados continuarão salvos no sistema, mas você precisará associá-los a outro concentrador.`)) return;
     try {
       const res = await fetch(`/api/mikrotik/servers/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      if (editingServer && editingServer.id === id) {
+        setEditingServer(null);
+      }
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Erro ao remover servidor');
@@ -461,16 +515,36 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
 
                   {/* Test Result Message if available */}
                   {result && (
-                    <div className={`p-3 rounded-xl border text-xs ${
+                    <div className={`p-3.5 rounded-xl border text-xs space-y-2 ${
                       result.success 
                         ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-200' 
                         : 'bg-red-950/50 border-red-500/40 text-red-200'
                     }`}>
                       <div className="flex items-center space-x-1.5 font-bold mb-0.5">
                         {result.success ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-red-400" />}
-                        <span>{result.success ? 'Conexão Bem-Sucedida!' : 'Falha no Teste'}</span>
+                        <span>{result.success ? 'Conexão Bem-Sucedida!' : 'Falha na Autenticação (Usuário ou Senha)'}</span>
                       </div>
                       <p className="text-[11px] leading-relaxed">{result.message}</p>
+                      
+                      {result.message?.includes('invalid user name or password') && (
+                        <div className="p-3 bg-slate-900/90 border border-red-500/30 rounded-xl space-y-2 text-[11px] text-slate-300">
+                          <p className="font-semibold text-amber-300 flex items-center space-x-1.5">
+                            <span>🔑 Como resolver (A porta 8728 respondeu, mas a senha/usuário falhou):</span>
+                          </p>
+                          <div className="space-y-1 text-slate-400">
+                            <p>
+                              <strong>Opção 1 (Mais fácil):</strong> Clique no botão <strong>"Editar Dados / Senha"</strong> logo abaixo e coloque o usuário e a senha exatos que você usa no Winbox (ex: se na RB você usa o usuário <code>admin</code> e sua senha, basta alterar aqui!).
+                            </p>
+                            <p>
+                              <strong>Opção 2:</strong> Ou crie/atualize o usuário <code>{srv.user}</code> no New Terminal do Winbox:
+                            </p>
+                          </div>
+                          <div className="p-2 bg-slate-950 rounded-lg font-mono text-[10px] text-emerald-300 select-all break-all border border-slate-800">
+                            /user add name="{srv.user}" password="SUA_SENHA_AQUI" group=full comment="AgroISP API"
+                          </div>
+                        </div>
+                      )}
+
                       {result.details && (
                         <div className="mt-1 text-[10px] font-mono opacity-80">
                           Modelo: {result.details.model} | Versão: {result.details.version} | Uptime: {result.details.uptime}
@@ -479,28 +553,69 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
                     </div>
                   )}
 
-                  {/* Actions */}
-                  <div className="flex items-center justify-between pt-1">
-                    <button
-                      type="button"
-                      disabled={isTestingThis}
-                      onClick={() => handleTestServer(srv)}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isTestingThis ? 'animate-spin' : ''}`} />
-                      <span>{isTestingThis ? 'Testando API...' : 'Testar Comunicação (API)'}</span>
-                    </button>
+                  {/* Actions Toolbar */}
+                  <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingServer({ ...srv })}
+                        className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 hover:text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Editar Servidor</span>
+                      </button>
 
-                    {effectiveServers.length > 1 && !srv.isDefault && (
+                      <button
+                        type="button"
+                        disabled={isTestingThis}
+                        onClick={() => handleTestServer(srv)}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isTestingThis ? 'animate-spin' : ''}`} />
+                        <span>{isTestingThis ? 'Testando API...' : 'Testar Comunicação (API)'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={importingServerId === srv.id}
+                        onClick={() => handleImportSecrets(srv)}
+                        className="px-3 py-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50"
+                        title="Importar todos os logins e senhas PPPoE já gravados nesta RB para o banco de dados do sistema"
+                      >
+                        <Zap className={`w-3.5 h-3.5 ${importingServerId === srv.id ? 'animate-bounce text-amber-400' : 'text-cyan-400'}`} />
+                        <span>{importingServerId === srv.id ? 'Importando...' : 'Puxar Secrets da RB'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      {!srv.isDefault && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await fetch(`/api/mikrotik/servers/${srv.id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ isDefault: true })
+                            });
+                            onRefresh();
+                          }}
+                          className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 text-xs font-medium border border-slate-700 transition"
+                          title="Tornar esta RB o concentrador padrão"
+                        >
+                          Tornar Padrão
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => handleDeleteServer(srv.id)}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-slate-700/60 hover:border-red-500/30 text-xs transition"
-                        title="Remover Servidor"
+                        className="px-3 py-2 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-200 border border-red-500/30 hover:border-red-500/50 text-xs font-bold flex items-center space-x-1.5 transition shadow-sm"
+                        title="Excluir este concentrador da lista"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
+                        <span>Excluir</span>
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
               );
@@ -615,6 +730,158 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
                     >
                       {isSavingServer ? 'Salvando...' : 'Salvar e Conectar RB'}
                     </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal to Edit Server */}
+          {editingServer && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                      <Settings className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-white text-sm">
+                        Editar Dados & Senha MikroTik
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        {editingServer.name} ({editingServer.host})
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setEditingServer(null)} className="text-slate-400 hover:text-white">✕</button>
+                </div>
+
+                <form onSubmit={handleUpdateServer} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Nome do Servidor / RB</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingServer.name}
+                      onChange={e => setEditingServer({ ...editingServer, name: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">IP / Host</label>
+                      <input
+                        type="text"
+                        required
+                        value={editingServer.host}
+                        onChange={e => setEditingServer({ ...editingServer, host: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Porta API (Padrão 8728)</label>
+                      <input
+                        type="number"
+                        value={editingServer.port}
+                        onChange={e => setEditingServer({ ...editingServer, port: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">
+                        Usuário API (RouterOS)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editingServer.user}
+                        onChange={e => setEditingServer({ ...editingServer, user: e.target.value })}
+                        placeholder="Ex: admin ou admin_isp"
+                        className="w-full px-3 py-2 bg-slate-950 border border-amber-500/40 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">Nome do usuário no Winbox</span>
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">
+                        Senha API (RouterOS)
+                      </label>
+                      <input
+                        type="text"
+                        value={editingServer.password || ''}
+                        onChange={e => setEditingServer({ ...editingServer, password: e.target.value })}
+                        placeholder="Deixe vazio se não tiver senha"
+                        className="w-full px-3 py-2 bg-slate-950 border border-amber-500/40 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">Senha exata da sua RB</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Localidade / POP</label>
+                      <input
+                        type="text"
+                        value={editingServer.location}
+                        onChange={e => setEditingServer({ ...editingServer, location: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1">Interface Saída PPPoE</label>
+                      <input
+                        type="text"
+                        value={editingServer.interfaceName}
+                        onChange={e => setEditingServer({ ...editingServer, interfaceName: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Concentrador Padrão Toggle */}
+                  <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+                    <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editingServer.isDefault)}
+                        onChange={e => setEditingServer({ ...editingServer, isDefault: e.target.checked })}
+                        className="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      <span className="font-medium">Definir como Concentrador MikroTik Padrão da Rede</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteServer(editingServer.id)}
+                      className="px-3.5 py-2 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-300 hover:text-white rounded-lg transition font-bold flex items-center space-x-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                      <span>Excluir Servidor</span>
+                    </button>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingServer(null)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingServer}
+                        className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>{isSavingServer ? 'Salvando...' : 'Salvar Servidor'}</span>
+                      </button>
+                    </div>
                   </div>
                 </form>
               </div>

@@ -402,6 +402,8 @@ app.post('/api/clients', async (req, res) => {
       status: mikrotikResult.success ? 'success' : 'warning'
     });
 
+    db.save();
+
     res.status(201).json({ client: newClient, invoice: initialInvoice, mikrotikResult });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Erro ao criar cliente' });
@@ -422,6 +424,8 @@ app.put('/api/clients/:id', async (req, res) => {
     // Sync updated secret in MikroTik RouterOS
     const mikrotikResult = await mikrotikService.syncSecret(updatedData);
 
+    db.save();
+
     res.json({ client: updatedData, mikrotikResult });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Erro ao atualizar cliente' });
@@ -441,6 +445,8 @@ app.delete('/api/clients/:id', async (req, res) => {
 
     db.clients = db.clients.filter(c => c.id !== id);
     db.invoices = db.invoices.filter(i => i.clientId !== id);
+
+    db.save();
 
     res.json({ success: true, message: `Cliente '${client.name}' e Secret removidos.` });
   } catch (error: any) {
@@ -621,6 +627,8 @@ app.post('/api/mikrotik/servers', async (req, res) => {
       status: testResult.success ? 'success' : 'warning'
     });
 
+    db.save();
+
     res.status(201).json({ server: newServer, testResult });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao adicionar servidor MikroTik' });
@@ -644,6 +652,16 @@ app.put('/api/mikrotik/servers/:id', async (req, res) => {
 
     db.servers[index] = updated;
 
+    // If global config matches this server, keep it in sync
+    if (updated.isDefault) {
+      db.mikrotikConfig.host = updated.host;
+      db.mikrotikConfig.port = updated.port;
+      db.mikrotikConfig.user = updated.user;
+      if (updated.password !== undefined) db.mikrotikConfig.password = updated.password;
+    }
+
+    db.save();
+
     res.json({ server: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao atualizar servidor MikroTik' });
@@ -657,7 +675,12 @@ app.delete('/api/mikrotik/servers/:id', (req, res) => {
   }
 
   const srv = db.servers.find(s => s.id === id);
+  const wasDefault = srv?.isDefault;
   db.servers = db.servers.filter(s => s.id !== id);
+
+  if (wasDefault && db.servers.length > 0) {
+    db.servers[0].isDefault = true;
+  }
 
   db.addAuditLog({
     type: 'mikrotik',
@@ -665,6 +688,8 @@ app.delete('/api/mikrotik/servers/:id', (req, res) => {
     message: `Servidor MikroTik '${srv?.name || id}' removido.`,
     status: 'warning'
   });
+
+  db.save();
 
   res.json({ success: true, message: 'Servidor removido com sucesso.' });
 });
@@ -678,6 +703,81 @@ app.post('/api/mikrotik/servers/:id/test', async (req, res) => {
 
   const result = await mikrotikService.testServer(srv);
   res.json(result);
+});
+
+// Import all PPP secrets directly from physical MikroTik router into system database
+app.post('/api/mikrotik/servers/:id/import-secrets', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const srv = db.servers.find(s => s.id === id);
+    if (!srv) {
+      return res.status(404).json({ error: 'Servidor não encontrado.' });
+    }
+
+    const { success, secrets, message } = await mikrotikService.getSecretsFromRouter(id);
+    if (!success) {
+      return res.status(500).json({ error: `Erro ao comunicar com a RB: ${message}` });
+    }
+
+    let imported = 0;
+    for (const sec of secrets) {
+      const username = sec.name;
+      if (!username) continue;
+
+      const exists = db.clients.some(c => c.pppoeUsername === username);
+      if (!exists) {
+        const rawComment = sec.comment || '';
+        const name = rawComment ? rawComment.split('-')[0].trim() : `Cliente ${username}`;
+        const location = rawComment.includes('-') ? rawComment.split('-')[1]?.trim() : srv.location || 'Zona Rural';
+        const matchedPlan = db.plans.find(p => p.profileName === sec.profile) || db.plans[0];
+
+        const newClient: Client = {
+          id: `cli-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          name: name || username,
+          document: '000.000.000-00',
+          phone: '',
+          email: '',
+          address: 'Conexão Rural',
+          ruralLocation: location || 'Setor Rural',
+          serverId: srv.id,
+          towerId: db.towers[0]?.id || 'tower-1',
+          planId: matchedPlan.id,
+          dueDay: 10,
+          pppoeUsername: username,
+          pppoePassword: sec.password || '123456',
+          ipAddress: sec['remote-address'] || undefined,
+          macAddress: sec['caller-id'] || undefined,
+          status: sec.disabled === 'true' ? 'blocked' : 'active',
+          signalDbm: -58,
+          createdAt: new Date().toISOString().split('T')[0]
+        };
+
+        db.clients.unshift(newClient);
+        imported++;
+      }
+    }
+
+    if (imported > 0) {
+      db.addAuditLog({
+        type: 'client',
+        action: 'BATCH_IMPORT',
+        message: `${imported} clientes importados diretamente da RB '${srv.name}' (${srv.host}).`,
+        status: 'success'
+      });
+      db.save();
+    }
+
+    res.json({
+      success: true,
+      importedCount: imported,
+      totalSecretsInRouter: secrets.length,
+      message: imported > 0
+        ? `${imported} clientes importados do MikroTik com sucesso e salvos no banco!`
+        : `Todos os ${secrets.length} secrets já constam no banco de dados.`
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao importar secrets da RB' });
+  }
 });
 
 app.post('/api/mikrotik/test', async (req, res) => {
@@ -1088,7 +1188,7 @@ app.post('/api/webhooks/simulate', async (req, res) => {
 // -----------------------------------------------------------------------------
 app.get('/api/plans', (req, res) => res.json({ plans: db.plans }));
 
-app.post('/api/plans', (req, res) => {
+app.post('/api/plans', async (req, res) => {
   try {
     const { name, speedDown, speedUp, price, technology, profileName, description } = req.body;
     if (!name || !speedDown || !price) {
@@ -1110,20 +1210,25 @@ app.post('/api/plans', (req, res) => {
 
     db.plans.push(newPlan);
 
+    // Sync profile on MikroTik RouterOS
+    const mikrotikSync = await mikrotikService.syncPlanProfile(newPlan);
+
     db.addAuditLog({
       type: 'system',
       action: 'PLAN_CREATED',
-      message: `Novo plano de internet cadastrado: [${newPlan.name}] (${newPlan.speedDown}M/${newPlan.speedUp}M - R$ ${newPlan.price.toFixed(2)}) com profile='${newPlan.profileName}'.`,
-      status: 'success'
+      message: `Novo plano de internet cadastrado: [${newPlan.name}] (${newPlan.speedDown}M/${newPlan.speedUp}M - R$ ${newPlan.price.toFixed(2)}) com profile='${newPlan.profileName}'. MikroTik: ${mikrotikSync.message}`,
+      status: mikrotikSync.success ? 'success' : 'warning'
     });
 
-    res.status(201).json({ plan: newPlan });
+    db.save();
+
+    res.status(201).json({ plan: newPlan, mikrotikSync });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao cadastrar plano.' });
   }
 });
 
-app.put('/api/plans/:id', (req, res) => {
+app.put('/api/plans/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const planIndex = db.plans.findIndex(p => p.id === id);
@@ -1142,20 +1247,25 @@ app.put('/api/plans/:id', (req, res) => {
 
     db.plans[planIndex] = updatedPlan;
 
+    // Sync updated rate-limit profile on MikroTik
+    const mikrotikSync = await mikrotikService.syncPlanProfile(updatedPlan);
+
     db.addAuditLog({
       type: 'system',
       action: 'PLAN_UPDATED',
-      message: `Plano atualizado: [${updatedPlan.name}] (${updatedPlan.speedDown}M/${updatedPlan.speedUp}M - R$ ${updatedPlan.price.toFixed(2)}).`,
-      status: 'info'
+      message: `Plano atualizado: [${updatedPlan.name}] (${updatedPlan.speedDown}M/${updatedPlan.speedUp}M - R$ ${updatedPlan.price.toFixed(2)}). MikroTik: ${mikrotikSync.message}`,
+      status: mikrotikSync.success ? 'info' : 'warning'
     });
 
-    res.json({ plan: updatedPlan });
+    db.save();
+
+    res.json({ plan: updatedPlan, mikrotikSync });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao atualizar plano.' });
   }
 });
 
-app.delete('/api/plans/:id', (req, res) => {
+app.delete('/api/plans/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const plan = db.plans.find(p => p.id === id);
@@ -1171,18 +1281,33 @@ app.delete('/api/plans/:id', (req, res) => {
       });
     }
 
+    // Remove profile from MikroTik RouterOS
+    const mikrotikSync = await mikrotikService.removePlanProfile(plan.profileName);
+
     db.plans = db.plans.filter(p => p.id !== id);
 
     db.addAuditLog({
       type: 'system',
       action: 'PLAN_DELETED',
-      message: `Plano de internet removido: [${plan.name}].`,
+      message: `Plano de internet removido: [${plan.name}]. MikroTik: ${mikrotikSync.message}`,
       status: 'warning'
     });
 
-    res.json({ success: true, message: `Plano '${plan.name}' excluído com sucesso.` });
+    db.save();
+
+    res.json({ success: true, message: `Plano '${plan.name}' removido com sucesso.`, mikrotikSync });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Erro ao excluir plano.' });
+    res.status(500).json({ error: err.message || 'Erro ao remover plano.' });
+  }
+});
+
+// Bulk sync all plans/profiles to all MikroTik servers
+app.post('/api/plans/sync-all', async (req, res) => {
+  try {
+    const result = await mikrotikService.syncAllPlans();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao sincronizar planos no MikroTik' });
   }
 });
 

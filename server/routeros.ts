@@ -224,24 +224,40 @@ export class RouterOSClient {
       socket.connect(this.port, this.host, async () => {
         try {
           // Perform RouterOS Login
-          // Modern RouterOS (v6.43+ and v7): direct /login with =name= and =password=
-          const loginWords = ['/login', `=name=${this.user}`, `=password=${this.pass}`];
-          const loginResp = await sendCommand(loginWords);
+          // RouterOS handles login in two ways depending on version:
+          // 1. Modern RouterOS (v6.43+ and v7): direct /login with =name= and =password=
+          //    If successful, returns !done (without =ret).
+          //    If challenge required or older version, returns !done with =ret=<hex> OR !trap.
+          let loginWords = ['/login', `=name=${this.user}`, `=password=${this.pass}`];
+          let loginResp = await sendCommand(loginWords);
 
-          if (!loginResp.success) {
-            // Check if old RouterOS requires challenge
-            const retChallenge = loginResp.data[0]?.ret;
-            if (retChallenge) {
-              const md5 = crypto.createHash('md5');
-              md5.update(Buffer.concat([Buffer.from([0]), Buffer.from(this.pass, 'utf-8'), Buffer.from(retChallenge, 'hex')]));
-              const respHex = '00' + md5.digest('hex');
-              const chalLogin = await sendCommand(['/login', `=name=${this.user}`, `=response=${respHex}`]);
-              if (!chalLogin.success) {
-                fail(new Error(chalLogin.message || 'Falha de autenticação no MikroTik (usuário ou senha incorretos)'));
-                return;
-              }
+          // Check if challenge was returned in !done (with =ret=...)
+          let challengeHex = loginResp.data?.[0]?.ret;
+
+          if (!challengeHex && !loginResp.success) {
+            // Older RouterOS: first send empty /login to request challenge
+            const chalReq = await sendCommand(['/login']);
+            if (chalReq.success && chalReq.data?.[0]?.ret) {
+              challengeHex = chalReq.data[0].ret;
             } else {
-              fail(new Error(loginResp.message || 'Falha no login da API MikroTik (usuário ou senha inválidos)'));
+              fail(new Error(loginResp.message || 'Falha ao autenticar na API do MikroTik (verifique usuário e senha)'));
+              return;
+            }
+          }
+
+          if (challengeHex) {
+            // Compute MD5 response: 0x00 + password + challenge
+            const chalBuf = Buffer.from(challengeHex, 'hex');
+            const passBuf = Buffer.from(this.pass, 'utf-8');
+            const md5 = crypto.createHash('md5');
+            md5.update(Buffer.from([0x00]));
+            md5.update(passBuf);
+            md5.update(chalBuf);
+            const respHex = '00' + md5.digest('hex');
+
+            const chalLogin = await sendCommand(['/login', `=name=${this.user}`, `=response=${respHex}`]);
+            if (!chalLogin.success) {
+              fail(new Error(chalLogin.message || 'Falha de autenticação no MikroTik (usuário ou senha incorretos)'));
               return;
             }
           }
@@ -325,7 +341,21 @@ export class RouterOSClient {
         if (params.remoteAddress) {
           updateWords.push(`=remote-address=${params.remoteAddress}`);
         }
-        const setResp = await send(updateWords);
+        let setResp = await send(updateWords);
+        if (!setResp.success && (setResp.message?.toLowerCase().includes('profile') || setResp.message?.toLowerCase().includes('not found'))) {
+          // Fallback to default profile if custom profile is missing on router
+          const fallbackWords = [
+            '/ppp/secret/set',
+            `=.id=${existing['.id']}`,
+            `=password=${params.password}`,
+            `=profile=default`,
+            `=comment=${params.comment}`,
+            `=service=pppoe`
+          ];
+          if (params.remoteAddress) fallbackWords.push(`=remote-address=${params.remoteAddress}`);
+          setResp = await send(fallbackWords);
+        }
+
         if (!setResp.success) {
           throw new Error(setResp.message || 'Falha ao atualizar secret existente no MikroTik');
         }
@@ -347,7 +377,22 @@ export class RouterOSClient {
         if (params.remoteAddress) {
           addWords.push(`=remote-address=${params.remoteAddress}`);
         }
-        const addResp = await send(addWords);
+        let addResp = await send(addWords);
+
+        if (!addResp.success && (addResp.message?.toLowerCase().includes('profile') || addResp.message?.toLowerCase().includes('not found'))) {
+          // If profile does not exist on this RB, fallback cleanly to 'default'
+          const fallbackWords = [
+            '/ppp/secret/add',
+            `=name=${params.username}`,
+            `=password=${params.password}`,
+            `=profile=default`,
+            `=comment=${params.comment}`,
+            `=service=pppoe`
+          ];
+          if (params.remoteAddress) fallbackWords.push(`=remote-address=${params.remoteAddress}`);
+          addResp = await send(fallbackWords);
+        }
+
         if (!addResp.success) {
           throw new Error(addResp.message || 'Falha ao adicionar novo secret no MikroTik');
         }
@@ -366,14 +411,16 @@ export class RouterOSClient {
       const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
       if (findResp.data && findResp.data.length > 0) {
         const id = findResp.data[0]['.id'];
-        await send(['/ppp/secret/remove', `*numbers=${id}`, `*=.id=${id}`]);
+        await send(['/ppp/secret/remove', `*=.id=${id}`, `*numbers=${id}`, `*name=${username}`]);
+        // Also send standard .id without asterisk
+        await send(['/ppp/secret/remove', `*numbers=${id}`]);
       }
       // Also kick active session if any
       const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
       if (activeResp.data && activeResp.data.length > 0) {
         for (const act of activeResp.data) {
           if (act['.id']) {
-            await send(['/ppp/active/remove', `*numbers=${act['.id']}`, `*=.id=${act['.id']}`]);
+            await send(['/ppp/active/remove', `*numbers=${act['.id']}`]);
           }
         }
       }
@@ -387,14 +434,18 @@ export class RouterOSClient {
       const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
       if (findResp.data && findResp.data.length > 0) {
         const id = findResp.data[0]['.id'];
-        await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${blockProfile}`]);
+        let setResp = await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${blockProfile}`]);
+        if (!setResp.success) {
+          // If block profile not found, try 'default'
+          await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=default`]);
+        }
       }
       // Disconnect active session
       const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
       if (activeResp.data && activeResp.data.length > 0) {
         for (const act of activeResp.data) {
           if (act['.id']) {
-            await send(['/ppp/active/remove', `*numbers=${act['.id']}`, `*=.id=${act['.id']}`]);
+            await send(['/ppp/active/remove', `*numbers=${act['.id']}`]);
           }
         }
       }
@@ -408,7 +459,10 @@ export class RouterOSClient {
       const findResp = await send(['/ppp/secret/print', `?name=${username}`]);
       if (findResp.data && findResp.data.length > 0) {
         const id = findResp.data[0]['.id'];
-        await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${normalProfile}`]);
+        let setResp = await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=${normalProfile}`]);
+        if (!setResp.success) {
+          await send(['/ppp/secret/set', `*numbers=${id}`, `*=.id=${id}`, `=profile=default`]);
+        }
       }
       // Disconnect active session so it reconnects with the normal profile immediately
       const activeResp = await send(['/ppp/active/print', `?name=${username}`]);
@@ -427,6 +481,80 @@ export class RouterOSClient {
   public async getActiveSessions(): Promise<any[]> {
     return this.executeTransaction(async (send) => {
       const resp = await send(['/ppp/active/print']);
+      return resp.data || [];
+    });
+  }
+
+  // Real creation / update of /ppp profile (Controle de Banda & Planos)
+  public async syncProfile(params: {
+    name: string;
+    rateLimit: string;
+    comment?: string;
+  }): Promise<{ success: boolean; created: boolean; message: string }> {
+    return this.executeTransaction(async (send) => {
+      const findResp = await send(['/ppp/profile/print', `?name=${params.name}`]);
+      const existing = findResp.data && findResp.data.length > 0 ? findResp.data[0] : null;
+
+      if (existing && existing['.id']) {
+        const id = existing['.id'];
+        const updateWords = [
+          '/ppp/profile/set',
+          `*numbers=${id}`,
+          `*=.id=${id}`,
+          `=rate-limit=${params.rateLimit}`
+        ];
+        if (params.comment) {
+          updateWords.push(`=comment=${params.comment}`);
+        }
+        const setResp = await send(updateWords);
+        if (!setResp.success) {
+          // Retry with standard syntax
+          await send(['/ppp/profile/set', `*numbers=${id}`, `=rate-limit=${params.rateLimit}`]);
+        }
+        return {
+          success: true,
+          created: false,
+          message: `Profile PPPoE '${params.name}' (${params.rateLimit}) atualizado com sucesso no MikroTik!`
+        };
+      } else {
+        const addWords = [
+          '/ppp/profile/add',
+          `=name=${params.name}`,
+          `=rate-limit=${params.rateLimit}`
+        ];
+        if (params.comment) {
+          addWords.push(`=comment=${params.comment}`);
+        }
+        const addResp = await send(addWords);
+        if (!addResp.success) {
+          throw new Error(addResp.message || `Falha ao adicionar profile '${params.name}' no MikroTik`);
+        }
+        return {
+          success: true,
+          created: true,
+          message: `Profile PPPoE '${params.name}' (${params.rateLimit}) CRIADO no MikroTik!`
+        };
+      }
+    });
+  }
+
+  // Remove /ppp profile
+  public async removeProfile(name: string): Promise<boolean> {
+    return this.executeTransaction(async (send) => {
+      const findResp = await send(['/ppp/profile/print', `?name=${name}`]);
+      if (findResp.data && findResp.data.length > 0) {
+        const id = findResp.data[0]['.id'];
+        await send(['/ppp/profile/remove', `*numbers=${id}`, `*=.id=${id}`]);
+        await send(['/ppp/profile/remove', `*numbers=${id}`]);
+      }
+      return true;
+    });
+  }
+
+  // List all /ppp profiles
+  public async getProfiles(): Promise<any[]> {
+    return this.executeTransaction(async (send) => {
+      const resp = await send(['/ppp/profile/print']);
       return resp.data || [];
     });
   }

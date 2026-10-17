@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Client, Plan, Tower, Invoice, MikrotikConfig, MikrotikServer, GatewayConfig, AuditLog, SystemStats, User, ServiceOrder, Contract, Equipment, FiscalInvoice, CompanySettings, Carne } from '../src/types/index.js';
 import { initialUsers } from './auth.js';
 
@@ -204,11 +206,72 @@ class DatabaseStore {
   public companySettings: CompanySettings = { ...initialCompanySettings };
   public auditLogs: AuditLog[] = [];
   public carnes: Carne[] = [];
+  private dbFilePath = path.resolve(process.cwd(), 'data', 'isp_database.json');
 
   constructor() {
+    this.loadFromFile();
     this.seedInvoices();
     this.seedCarnes();
-    this.seedAuditLogs();
+    if (this.auditLogs.length === 0) {
+      this.seedAuditLogs();
+    }
+  }
+
+  public save() {
+    try {
+      const dataDir = path.dirname(this.dbFilePath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      const data = {
+        users: this.users,
+        clients: this.clients,
+        plans: this.plans,
+        towers: this.towers,
+        invoices: this.invoices,
+        serviceOrders: this.serviceOrders,
+        contracts: this.contracts,
+        equipments: this.equipments,
+        fiscalInvoices: this.fiscalInvoices,
+        mikrotikConfig: this.mikrotikConfig,
+        servers: this.servers,
+        gatewayConfig: this.gatewayConfig,
+        companySettings: this.companySettings,
+        auditLogs: this.auditLogs.slice(0, 100),
+        carnes: this.carnes
+      };
+      fs.writeFileSync(this.dbFilePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('Erro ao salvar banco de dados em disco:', err);
+    }
+  }
+
+  public loadFromFile() {
+    try {
+      if (fs.existsSync(this.dbFilePath)) {
+        const raw = fs.readFileSync(this.dbFilePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.clients)) this.clients = parsed.clients;
+        if (Array.isArray(parsed.servers) && parsed.servers.length > 0) this.servers = parsed.servers;
+        if (Array.isArray(parsed.plans) && parsed.plans.length > 0) this.plans = parsed.plans;
+        if (Array.isArray(parsed.towers) && parsed.towers.length > 0) this.towers = parsed.towers;
+        if (Array.isArray(parsed.invoices)) this.invoices = parsed.invoices;
+        if (Array.isArray(parsed.serviceOrders)) this.serviceOrders = parsed.serviceOrders;
+        if (Array.isArray(parsed.contracts)) this.contracts = parsed.contracts;
+        if (Array.isArray(parsed.equipments)) this.equipments = parsed.equipments;
+        if (Array.isArray(parsed.fiscalInvoices)) this.fiscalInvoices = parsed.fiscalInvoices;
+        if (parsed.mikrotikConfig) this.mikrotikConfig = { ...this.mikrotikConfig, ...parsed.mikrotikConfig };
+        if (parsed.gatewayConfig) this.gatewayConfig = { ...this.gatewayConfig, ...parsed.gatewayConfig };
+        if (parsed.companySettings) this.companySettings = { ...this.companySettings, ...parsed.companySettings };
+        if (Array.isArray(parsed.auditLogs)) this.auditLogs = parsed.auditLogs;
+        if (Array.isArray(parsed.carnes)) this.carnes = parsed.carnes;
+        console.log(`[DB] Banco de dados persistente carregado (${this.clients.length} clientes, ${this.servers.length} servidores, ${this.plans.length} planos).`);
+      } else {
+        this.save();
+      }
+    } catch (err) {
+      console.error('Erro ao carregar banco de dados de disco:', err);
+    }
   }
 
   private seedInvoices() {
@@ -242,6 +305,7 @@ class DatabaseStore {
     if (this.auditLogs.length > 200) {
       this.auditLogs.pop();
     }
+    this.save();
     return log;
   }
 
@@ -295,6 +359,7 @@ class DatabaseStore {
         message: `Importação em lote de ${added} clientes concluída com sucesso para bancada/produção.`,
         status: 'success'
       });
+      this.save();
     }
 
     return { added, errors };
@@ -315,6 +380,7 @@ class DatabaseStore {
       message: 'Todos os clientes de modelos e boletos de exemplo foram removidos. Sistema limpo.',
       status: 'info'
     });
+    this.save();
   }
 
   public getStats(): SystemStats {

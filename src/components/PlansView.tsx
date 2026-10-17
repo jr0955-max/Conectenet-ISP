@@ -15,7 +15,9 @@ import {
   TrendingUp, 
   ShieldCheck,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  RefreshCw,
+  Zap
 } from 'lucide-react';
 import { Plan, Client } from '../types/index.js';
 
@@ -25,6 +27,7 @@ interface PlansViewProps {
   onOpenNewPlan: () => void;
   onEditPlan: (plan: Plan) => void;
   onDeletePlan: (planId: string) => void;
+  onSyncAllPlans?: () => Promise<void> | void;
 }
 
 export const PlansView: React.FC<PlansViewProps> = ({
@@ -32,10 +35,22 @@ export const PlansView: React.FC<PlansViewProps> = ({
   clients,
   onOpenNewPlan,
   onEditPlan,
-  onDeletePlan
+  onDeletePlan,
+  onSyncAllPlans
 }) => {
   const [copiedPlanId, setCopiedPlanId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncAll = async () => {
+    if (!onSyncAllPlans) return;
+    try {
+      setIsSyncing(true);
+      await onSyncAllPlans();
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -79,20 +94,32 @@ export const PlansView: React.FC<PlansViewProps> = ({
                 Planos de Internet & Velocidades
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Defina velocidades de download/upload, valores e perfis de controle de banda (PPP Profiles) para o MikroTik RouterOS.
+                Ao cadastrar ou excluir um plano, o sistema sincroniza automaticamente os <strong>Profiles de Velocidade no MikroTik (/ppp profile)</strong> via API na porta 8728.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2.5 shrink-0">
+        <div className="flex items-center space-x-2.5 shrink-0 flex-wrap gap-2">
+          {onSyncAllPlans && (
+            <button
+              onClick={handleSyncAll}
+              disabled={isSyncing}
+              className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-white rounded-xl text-xs font-bold transition border border-emerald-500/40 disabled:opacity-50"
+              title="Criar/atualizar todos os profiles de velocidade nas RBs MikroTik conectadas"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar no MikroTik (API)'}</span>
+            </button>
+          )}
+
           <button
             onClick={copyAllProfilesScript}
             className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition border border-slate-700"
             title="Copiar comando de todos os perfis para colar no Terminal do Winbox"
           >
             {copiedAll ? <Check className="w-4 h-4 text-emerald-400" /> : <Terminal className="w-4 h-4 text-cyan-400" />}
-            <span>{copiedAll ? 'Copiados!' : 'Copiar Profiles MikroTik'}</span>
+            <span>{copiedAll ? 'Copiados!' : 'Copiar Script Winbox'}</span>
           </button>
 
           <button

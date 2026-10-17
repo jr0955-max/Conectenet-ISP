@@ -212,14 +212,17 @@ export const PlanModal: React.FC<PlanModalProps> = ({
             </div>
 
             {/* MikroTik Command Preview */}
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1 text-xs">
-              <span className="text-[10px] text-cyan-400 font-semibold block flex items-center space-x-1">
-                <Terminal className="w-3 h-3" />
-                <span>Comando Gerado para o MikroTik:</span>
+            <div className="p-3 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-1.5 text-xs">
+              <span className="text-[10px] text-emerald-400 font-semibold flex items-center space-x-1">
+                <Terminal className="w-3.5 h-3.5" />
+                <span>Provisionamento Automático no MikroTik (/ppp profile):</span>
               </span>
-              <div className="font-mono text-[10px] text-slate-300 break-all select-all">
+              <div className="font-mono text-[10px] text-emerald-300 break-all select-all bg-slate-900 p-2 rounded border border-slate-800">
                 {previewRouterOsCommand}
               </div>
+              <p className="text-[10px] text-slate-400">
+                Ao clicar em salvar, este profile com rate-limit <strong>{speedUp}M/{speedDown}M</strong> será enviado diretamente para as RBs MikroTik conectadas via porta 8728.
+              </p>
             </div>
           </div>
 
