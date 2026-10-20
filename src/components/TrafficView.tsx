@@ -62,6 +62,9 @@ export const TrafficView: React.FC<TrafficViewProps> = ({ servers }) => {
     try {
       setIsLoading(true);
       const res = await fetch('/api/mikrotik/traffic');
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const data = await res.json();
       if (data.servers) {
         setTrafficData(data.servers);
@@ -71,6 +74,8 @@ export const TrafficView: React.FC<TrafficViewProps> = ({ servers }) => {
       }
     } catch (err) {
       console.error('Erro ao buscar tráfego:', err);
+      setTotalRx(0);
+      setTotalTx(0);
     } finally {
       setIsLoading(false);
     }
@@ -233,13 +238,25 @@ export const TrafficView: React.FC<TrafficViewProps> = ({ servers }) => {
                       <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700">
                         {server.host}:{server.port}
                       </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        ● Online
-                      </span>
+                      {server.status === 'connected' ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          ● Online
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                          ● Desconectada / Offline
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-400 mt-1">
                       Localidade: <span className="text-slate-200 font-semibold">{server.location}</span> | Uptime: <span className="font-mono text-slate-300">{server.uptime}</span> | CPU Load: <span className="font-mono text-amber-400">{server.cpuLoad}%</span>
                     </p>
+                    {server.status !== 'connected' && (
+                      <p className="text-xs text-red-400 mt-1 flex items-center space-x-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>A RB não está respondendo no IP {server.host}:{server.port}. Ligue o equipamento ou verifique o cabo de rede.</span>
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center space-x-4 bg-slate-950 p-2.5 rounded-lg border border-slate-800">
@@ -261,6 +278,13 @@ export const TrafficView: React.FC<TrafficViewProps> = ({ servers }) => {
 
                 {/* Interfaces Table */}
                 <div className="overflow-x-auto">
+                  {server.interfaces.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-500 bg-slate-950/40 rounded-lg">
+                      {server.status === 'connected' 
+                        ? 'Nenhuma interface com tráfego detectada nesta RB.'
+                        : 'RB inacessível no momento. Conecte a RB na rede para ler as interfaces físicas reais.'}
+                    </div>
+                  ) : (
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-800 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
@@ -316,6 +340,7 @@ export const TrafficView: React.FC<TrafficViewProps> = ({ servers }) => {
                       })}
                     </tbody>
                   </table>
+                  )}
                 </div>
               </div>
             );

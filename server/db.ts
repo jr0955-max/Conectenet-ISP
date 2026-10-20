@@ -383,7 +383,7 @@ class DatabaseStore {
     this.save();
   }
 
-  public getStats(): SystemStats {
+  public getStats(realOnlineSessions?: number): SystemStats {
     const totalClients = this.clients.length;
     const activeClients = this.clients.filter(c => c.status === 'active').length;
     const blockedClients = this.clients.filter(c => c.status === 'blocked').length;
@@ -415,7 +415,7 @@ class DatabaseStore {
       activeClients,
       blockedClients,
       pendingClients,
-      onlineSessions: activeClients, // active connected sessions
+      onlineSessions: realOnlineSessions !== undefined ? realOnlineSessions : 0,
       monthlyRevenue,
       pendingRevenue,
       overdueRevenue,

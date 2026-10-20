@@ -606,4 +606,33 @@ export class RouterOSClient {
       return resp.data || [];
     });
   }
+
+  // Query live interface traffic monitor
+  public async getInterfaceMonitor(interfaceNames: string[]): Promise<any[]> {
+    return this.executeTransaction(async (send) => {
+      if (interfaceNames.length === 0) return [];
+      const resp = await send(['/interface/monitor-traffic', `=interface=${interfaceNames.join(',')}`, '=once=']);
+      return resp.data || [];
+    });
+  }
+
+  // Query system resources (cpu-load, free-memory, uptime, model, version)
+  public async getSystemResource(): Promise<any> {
+    return this.executeTransaction(async (send) => {
+      const resp = await send(['/system/resource/print']);
+      return resp.data && resp.data.length > 0 ? resp.data[0] : null;
+    });
+  }
+
+  // Query recent PPP logs to detect authentication failures (e.g. wrong password)
+  public async getPppLogs(): Promise<any[]> {
+    return this.executeTransaction(async (send) => {
+      try {
+        const resp = await send(['/log/print', '?topics=ppp']);
+        return resp.data || [];
+      } catch {
+        return [];
+      }
+    });
+  }
 }

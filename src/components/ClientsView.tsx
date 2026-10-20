@@ -25,13 +25,14 @@ import {
   Check,
   RefreshCw
 } from 'lucide-react';
-import { Client, Plan, Tower, Invoice, CompanySettings, MikrotikServer } from '../types/index.js';
+import { Client, Plan, Tower, Invoice, CompanySettings, MikrotikServer, ActiveSession } from '../types/index.js';
 
 interface ClientsViewProps {
   clients: Client[];
   plans: Plan[];
   towers: Tower[];
   servers?: MikrotikServer[];
+  activeSessions?: ActiveSession[];
   invoices: Invoice[];
   onOpenNewClient: () => void;
   onEditClient: (client: Client) => void;
@@ -47,6 +48,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   plans,
   towers,
   servers = [],
+  activeSessions = [],
   invoices,
   onOpenNewClient,
   onEditClient,
@@ -321,21 +323,44 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Status & Wireless Signal */}
+                      {/* Status & Real Connection */}
                       <td className="py-3.5 px-4 text-center">
-                        <div>
-                          {isBlocked ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
-                              <Lock className="w-3 h-3 mr-1" />
-                              Bloqueado
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                              <Unlock className="w-3 h-3 mr-1" />
-                              Ativo
-                            </span>
-                          )}
-                        </div>
+                        {(() => {
+                          const isOnline = activeSessions.some(s => s.username === client.pppoeUsername);
+                          return (
+                            <div className="space-y-1">
+                              {/* PPPoE Real Physical Connection Badge */}
+                              <div>
+                                {isOnline ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1" />
+                                    Online (PPP)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1" />
+                                    Offline
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Cadastral / Billing Status */}
+                              <div>
+                                {isBlocked ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/15 text-red-400">
+                                    <Lock className="w-2.5 h-2.5 mr-0.5" />
+                                    Bloqueado
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center text-[9px] text-slate-400">
+                                    <Unlock className="w-2.5 h-2.5 mr-0.5 text-emerald-400" />
+                                    Ativo
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                         {client.signalDbm && (
                           <div className="text-[10px] font-mono mt-1 text-slate-400">
                             Sinal: <span className={client.signalDbm > -60 ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>

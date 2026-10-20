@@ -358,9 +358,11 @@ export default function App() {
       }).catch(() => {});
 
       fetch('/api/mikrotik/active').then(r => r.json()).then(res => {
-        if (res.sessions) setActiveSessions(res.sessions);
-      }).catch(() => {});
-    }, 12000);
+        setActiveSessions(res.sessions || []);
+      }).catch(() => {
+        setActiveSessions([]);
+      });
+    }, 8000);
 
     return () => clearInterval(interval);
   }, [loadAllData]);
@@ -753,6 +755,7 @@ export default function App() {
               plans={plans}
               towers={towers}
               servers={mikrotikServers}
+              activeSessions={activeSessions}
               invoices={invoices}
               onOpenNewClient={() => {
                 setClientToEdit(null);

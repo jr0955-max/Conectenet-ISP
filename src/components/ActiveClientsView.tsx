@@ -17,7 +17,8 @@ import {
   Activity,
   ArrowDownCircle,
   ArrowUpCircle,
-  HardDrive
+  HardDrive,
+  AlertCircle
 } from 'lucide-react';
 import { MikrotikServer } from '../types/index.js';
 
@@ -54,6 +55,7 @@ interface OfflineClient {
   status: string;
   serverId?: string;
   serverName?: string;
+  isAuthFailed?: boolean;
   lastSeen?: string;
 }
 
@@ -70,6 +72,8 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
 }) => {
   const [activeConnections, setActiveConnections] = useState<ActiveConnection[]>([]);
   const [offlineClients, setOfflineClients] = useState<OfflineClient[]>([]);
+  const [serverStatuses, setServerStatuses] = useState<Record<string, { status: string; error?: string }>>({});
+  const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
   const [summary, setSummary] = useState({
     totalOnline: 0,
     totalOffline: 0,
@@ -90,16 +94,43 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     try {
       setIsLoading(true);
       const res = await fetch('/api/mikrotik/active-connections');
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: Erro na resposta da API`);
+      }
       const data = await res.json();
-      if (data.activeConnections) {
-        setActiveConnections(data.activeConnections);
-        setOfflineClients(data.offlineClients || []);
-        if (data.summary) {
-          setSummary(data.summary);
-        }
+      
+      const newActives = data.activeConnections || [];
+      const newOfflines = data.offlineClients || [];
+      setActiveConnections(newActives);
+      setOfflineClients(newOfflines);
+      setLastSyncTime(new Date());
+
+      if (data.serverStatuses) {
+        setServerStatuses(data.serverStatuses);
+      }
+
+      if (data.summary) {
+        setSummary(data.summary);
+      } else {
+        setSummary({
+          totalOnline: newActives.length,
+          totalOffline: newOfflines.length,
+          totalClients: newActives.length + newOfflines.length,
+          totalServers: servers.length,
+          totalRxBps: 0,
+          totalTxBps: 0
+        });
       }
     } catch (err) {
-      console.error('Erro ao buscar conexões ativas:', err);
+      console.error('Erro ao buscar conexões ativas do MikroTik:', err);
+      // Se a RB estiver desconectada ou a API cair, ZERA as conexões ativas imediatamente!
+      setActiveConnections([]);
+      setSummary(prev => ({
+        ...prev,
+        totalOnline: 0,
+        totalRxBps: 0,
+        totalTxBps: 0
+      }));
     } finally {
       setIsLoading(false);
     }
@@ -111,7 +142,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(fetchConnections, 5000);
+    const interval = setInterval(fetchConnections, 4000);
     return () => clearInterval(interval);
   }, [autoRefresh]);
 
@@ -152,6 +183,10 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     return matchesServer && matchesSearch;
   });
 
+  const offlineServerList = servers.filter(s => {
+    return s.status === 'error' || serverStatuses[s.id]?.status === 'error';
+  });
+
   return (
     <div className="space-y-6">
       {/* Top Header */}
@@ -161,9 +196,16 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
             <Wifi className="w-5 h-5 text-emerald-400" />
             <span>Clientes On/Off - Sessões PPP Ativas por RB</span>
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Visualização em tempo real de clientes conectados (/ppp active) e desconectados em cada concentrador MikroTik.
-          </p>
+          <div className="flex items-center space-x-2 mt-1">
+            <p className="text-xs text-slate-400">
+              Sincronização direta com a RB física via RouterOS API (/ppp active).
+            </p>
+            <span className="text-slate-600">•</span>
+            <span className="text-[11px] text-emerald-400 font-mono flex items-center space-x-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Sincronizado {lastSyncTime.toLocaleTimeString()}</span>
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center space-x-3">
@@ -175,12 +217,15 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
               onChange={(e) => setSelectedServerId(e.target.value)}
               className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
             >
-              <option value="all">Todas as RBs</option>
-              {servers.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.host})
-                </option>
-              ))}
+              <option value="all">Todas as RBs ({servers.length})</option>
+              {servers.map(s => {
+                const isOff = s.status === 'error' || serverStatuses[s.id]?.status === 'error';
+                return (
+                  <option key={s.id} value={s.id}>
+                    {isOff ? '🔴' : '🟢'} {s.name} ({s.host})
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -194,7 +239,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
-            <span>{autoRefresh ? 'Auto 5s' : 'Pausado'}</span>
+            <span>{autoRefresh ? 'Auto 4s' : 'Pausado'}</span>
           </button>
 
           {/* Refresh button */}
@@ -202,12 +247,33 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
             onClick={fetchConnections}
             disabled={isLoading}
             className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition"
-            title="Atualizar sessões agora"
+            title="Sincronizar com a RB agora"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-emerald-400' : ''}`} />
           </button>
         </div>
       </div>
+
+      {/* Offline RB Alert Notice */}
+      {offlineServerList.length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 shadow-sm space-y-2">
+          <div className="flex items-center space-x-2 text-red-300 font-bold text-xs">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span>Atenção: Concentrador MikroTik Desconectado ou Inacessível na Rede</span>
+          </div>
+          <div className="text-xs text-red-200/90 space-y-1 pl-6">
+            {offlineServerList.map(s => (
+              <div key={s.id} className="flex items-start space-x-1.5">
+                <span className="font-semibold text-red-300">• {s.name} ({s.host}:{s.port}):</span>
+                <span>{serverStatuses[s.id]?.error || 'Sem resposta na porta 8728 (API RouterOS). Verifique energia, cabo de rede e se IP > Services > api está habilitada no Winbox.'}</span>
+              </div>
+            ))}
+            <p className="text-[11px] text-red-300/80 pt-1">
+              Como a RB está desconectada, nenhuma sessão PPPoE está online neste momento. Todas as contas foram posicionadas na aba "Offline Desconectados".
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -319,8 +385,16 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
               <tbody className="divide-y divide-slate-800">
                 {filteredOnline.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
-                      Nenhuma conexão PPP ativa encontrada para este filtro.
+                    <td colSpan={7} className="py-12 text-center text-xs">
+                      <div className="max-w-md mx-auto space-y-2">
+                        <div className="w-10 h-10 rounded-full bg-slate-800/80 border border-slate-700/60 flex items-center justify-center mx-auto text-slate-400">
+                          <WifiOff className="w-5 h-5" />
+                        </div>
+                        <p className="text-slate-200 font-bold text-sm">Nenhum cliente conectado no momento (0 conexões ativas)</p>
+                        <p className="text-slate-500 text-xs">
+                          A leitura em /ppp active está vazia. Quando um cliente discar na RB com o usuário e a senha corretos do PPPoE, ele aparecerá aqui automaticamente com o IP remoto real atribuído, MAC e tempo de conexão.
+                        </p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -429,8 +503,8 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                   <th className="py-3 px-4">Cliente / Usuário</th>
                   <th className="py-3 px-4">RB Vinculada</th>
                   <th className="py-3 px-4">Plano</th>
-                  <th className="py-3 px-4">Localidade</th>
-                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Status & Diagnóstico</th>
+                  <th className="py-3 px-4">Motivo / Leitura da RB</th>
                   <th className="py-3 px-4 text-right">WhatsApp Contato</th>
                 </tr>
               </thead>
@@ -438,7 +512,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                 {filteredOffline.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-slate-500">
-                      Nenhum cliente offline encontrado. Todos os clientes estão conectados!
+                      Nenhum cliente offline encontrado. Todos os clientes cadastrados possuem sessão PPP ativa!
                     </td>
                   </tr>
                 ) : (
@@ -454,19 +528,26 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       <td className="py-3 px-4 text-slate-300">
                         {client.planName || 'Plano Padrão'}
                       </td>
-                      <td className="py-3 px-4 text-slate-400">
-                        {client.ruralLocation || 'Zona Rural'}
-                      </td>
                       <td className="py-3 px-4">
-                        {client.status === 'blocked' ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
+                        {client.isAuthFailed ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            <AlertCircle className="w-3 h-3 mr-1" />
+                            Senha PPPoE Incorreta
+                          </span>
+                        ) : client.status === 'blocked' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
                             Bloqueado (Corte)
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
-                            Desconectado (Cabo/Rádio)
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                            Offline (Desconectado)
                           </span>
                         )}
+                      </td>
+                      <td className="py-3 px-4 text-[11px] font-mono text-slate-400 max-w-xs">
+                        <span className={client.isAuthFailed ? 'text-amber-400 font-semibold' : client.lastSeen?.startsWith('🔴') ? 'text-red-400 font-semibold' : 'text-slate-400'}>
+                          {client.lastSeen || 'Desconectado'}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-right">
                         {client.phone ? (

@@ -314,8 +314,9 @@ app.delete('/api/users/:id', authenticateToken, authorizeRole(['administrador'])
 // 1. DASHBOARD & STATS API
 // -----------------------------------------------------------------------------
 app.get('/api/stats', (req, res) => {
+  const onlineCount = mikrotikService.getLastOnlineCount();
   res.json({
-    stats: db.getStats(),
+    stats: db.getStats(onlineCount),
     systemInfo: mikrotikService.getSystemInfo(),
     mikrotikConfig: db.mikrotikConfig,
     gatewayConfig: db.gatewayConfig
@@ -803,8 +804,8 @@ app.get('/api/mikrotik/active-connections', async (req, res) => {
   }
 });
 
-app.get('/api/mikrotik/active', (req, res) => {
-  const sessions = mikrotikService.getActiveSessions();
+app.get('/api/mikrotik/active', async (req, res) => {
+  const sessions = await mikrotikService.getActiveSessions();
   res.json({ sessions, count: sessions.length });
 });
 

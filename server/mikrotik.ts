@@ -355,41 +355,68 @@ class MikrotikService {
     }
   }
 
-  // Active Sessions
-  public getActiveSessions(): ActiveSession[] {
-    const activeClients = db.clients.filter(c => c.status === 'active');
-    
-    return activeClients.map((client, index) => {
-      const plan = db.plans.find(p => p.id === client.planId);
-      const tower = db.towers.find(t => t.id === client.towerId);
-      const server = this.resolveServer(client.serverId);
+  private prevIfaceBytes: Map<string, { rxBytes: number; txBytes: number; timestamp: number }> = new Map();
+  private prevSessionBytes: Map<string, { rxBytes: number; txBytes: number; timestamp: number }> = new Map();
+  public lastOnlineSessionsCount: number = 0;
 
-      const maxDownKbps = (plan?.speedDown || 15) * 1024;
-      const rxRateKbps = Math.floor(Math.random() * (maxDownKbps * 0.7)) + 120;
-      const txRateKbps = Math.floor(rxRateKbps * 0.2) + 40;
+  public getLastOnlineCount(): number {
+    return this.lastOnlineSessionsCount;
+  }
 
-      const uptimeHours = (index * 7 + 3) % 48;
-      const uptimeMins = (index * 13 + 22) % 60;
-      const uptimeSecs = (index * 29 + 15) % 60;
+  public parseRouterOsUptime(uptimeStr: string): number {
+    if (!uptimeStr) return 0;
+    let totalSecs = 0;
+    const wMatch = uptimeStr.match(/(\d+)w/);
+    const dMatch = uptimeStr.match(/(\d+)d/);
+    const hMatch = uptimeStr.match(/(\d+)h/);
+    const mMatch = uptimeStr.match(/(\d+)m/);
+    const sMatch = uptimeStr.match(/(\d+)s/);
+    if (wMatch) totalSecs += parseInt(wMatch[1], 10) * 7 * 86400;
+    if (dMatch) totalSecs += parseInt(dMatch[1], 10) * 86400;
+    if (hMatch) totalSecs += parseInt(hMatch[1], 10) * 3600;
+    if (mMatch) totalSecs += parseInt(mMatch[1], 10) * 60;
+    if (sMatch) totalSecs += parseInt(sMatch[1], 10);
+    return totalSecs;
+  }
 
-      return {
-        id: `act-${client.id}`,
-        username: client.pppoeUsername,
-        clientName: client.name,
-        ipAddress: client.ipAddress || `10.50.${index + 1}.100`,
-        uptime: `${uptimeHours}h ${uptimeMins}m ${uptimeSecs}s`,
-        uptimeSeconds: uptimeHours * 3600 + uptimeMins * 60 + uptimeSecs,
-        rxBytes: 1024 * 1024 * (index * 450 + 120),
-        txBytes: 1024 * 1024 * (index * 80 + 35),
-        rxRateKbps,
-        txRateKbps,
-        callerId: client.macAddress || `DC:9F:DB:${(10 + index).toString(16)}:4A:${(20 + index).toString(16)}`,
-        service: 'pppoe',
-        interfaceName: `<pppoe-${client.pppoeUsername}>`,
-        signalDbm: client.signalDbm || -55 - (index % 12),
-        towerName: tower?.name || server.name
-      };
-    });
+  // Real Active Sessions from Physical Router (NO MOCKS)
+  public async getActiveSessions(): Promise<ActiveSession[]> {
+    const defaultServer = this.resolveServer();
+    try {
+      const ros = this.getClient(defaultServer);
+      const realActives = await ros.getActiveSessions();
+      defaultServer.status = 'connected';
+      this.lastOnlineSessionsCount = realActives.length;
+
+      return realActives.map((act) => {
+        const username = act.name || act.user || '';
+        const client = db.clients.find(c => c.pppoeUsername === username);
+        const plan = client ? db.plans.find(p => p.id === client.planId) : null;
+        const tower = client ? db.towers.find(t => t.id === client.towerId) : null;
+
+        return {
+          id: act['.id'] || `act-${username}`,
+          username,
+          clientName: client?.name || `Assinante ${username}`,
+          ipAddress: act.address || client?.ipAddress || 'Dinâmico',
+          uptime: act.uptime || '0s',
+          uptimeSeconds: this.parseRouterOsUptime(act.uptime || '0s'),
+          rxBytes: Number(act['limit-bytes-in']) || 0,
+          txBytes: Number(act['limit-bytes-out']) || 0,
+          rxRateKbps: 0,
+          txRateKbps: 0,
+          callerId: act['caller-id'] || client?.macAddress || 'Não informado',
+          service: act.service || 'pppoe',
+          interfaceName: `<pppoe-${username}>`,
+          signalDbm: client?.signalDbm || -55,
+          towerName: tower?.name || defaultServer.name
+        };
+      });
+    } catch {
+      defaultServer.status = 'error';
+      this.lastOnlineSessionsCount = 0;
+      return [];
+    }
   }
 
   // Sync a single plan profile with MikroTik servers
@@ -488,125 +515,140 @@ class MikrotikService {
     }
   }
 
-  // Comprehensive traffic monitoring across all registered MikroTik RBs
+  // 100% REAL Interface Traffic directly queried from RouterOS
   public async getAllRbsTraffic() {
     const results = [];
     let netRx = 0;
     let netTx = 0;
+    const now = Date.now();
 
     for (const server of db.servers) {
-      // Base interfaces template
-      const ifaces = [
-        {
-          name: 'ether1-WAN',
-          type: 'ether',
-          running: true,
-          disabled: false,
-          comment: 'Link Dedicado Fibra / Uplink Provedor',
-          rxBps: Math.floor(Math.random() * 45000000) + 18000000, // 18-63 Mbps
-          txBps: Math.floor(Math.random() * 15000000) + 5000000,  // 5-20 Mbps
-          rxBytes: 1024 * 1024 * 1024 * 42,
-          txBytes: 1024 * 1024 * 1024 * 14,
-          rxPacketsSec: Math.floor(Math.random() * 3200) + 1200,
-          txPacketsSec: Math.floor(Math.random() * 1900) + 700
-        },
-        {
-          name: server.interfaceName || 'ether2-LAN',
-          type: 'ether',
-          running: true,
-          disabled: false,
-          comment: 'Concentrador PPPoE Clientes Locais',
-          rxBps: Math.floor(Math.random() * 14000000) + 4800000,
-          txBps: Math.floor(Math.random() * 42000000) + 17000000,
-          rxBytes: 1024 * 1024 * 1024 * 13,
-          txBytes: 1024 * 1024 * 1024 * 40,
-          rxPacketsSec: Math.floor(Math.random() * 1800) + 650,
-          txPacketsSec: Math.floor(Math.random() * 3100) + 1150
-        },
-        {
-          name: 'bridge-pppoe',
-          type: 'bridge',
-          running: true,
-          disabled: false,
-          comment: 'Bridge Concentradora de Enlaces & Torres',
-          rxBps: Math.floor(Math.random() * 13500000) + 4600000,
-          txBps: Math.floor(Math.random() * 41000000) + 16500000,
-          rxBytes: 1024 * 1024 * 1024 * 12,
-          txBytes: 1024 * 1024 * 1024 * 39,
-          rxPacketsSec: Math.floor(Math.random() * 1750) + 600,
-          txPacketsSec: Math.floor(Math.random() * 3000) + 1100
-        },
-        {
-          name: 'sfp-plus1',
-          type: 'sfp-sfpplus',
-          running: true,
-          disabled: false,
-          comment: 'Backbone Fibra 10Gbps PTP',
-          rxBps: Math.floor(Math.random() * 52000000) + 21000000,
-          txBps: Math.floor(Math.random() * 22000000) + 7500000,
-          rxBytes: 1024 * 1024 * 1024 * 98,
-          txBytes: 1024 * 1024 * 1024 * 34,
-          rxPacketsSec: Math.floor(Math.random() * 4100) + 1500,
-          txPacketsSec: Math.floor(Math.random() * 2400) + 900
-        }
-      ];
-
-      // Try reading live interfaces from physical router if reachable
       try {
         const ros = this.getClient(server);
-        const realIfaces = await ros.getInterfaces();
-        if (realIfaces && realIfaces.length > 0) {
-          server.status = 'connected';
-          // Merge or supplement
-          for (const rif of realIfaces) {
-            const rxB = Number(rif['rx-byte']) || 0;
-            const txB = Number(rif['tx-byte']) || 0;
-            const idx = ifaces.findIndex(i => i.name === rif.name);
-            if (idx >= 0) {
-              if (rxB > 0) ifaces[idx].rxBytes = rxB;
-              if (txB > 0) ifaces[idx].txBytes = txB;
-              ifaces[idx].running = rif.running === 'true';
-              ifaces[idx].disabled = rif.disabled === 'true';
-            } else {
-              ifaces.push({
-                name: rif.name || 'interface',
-                type: rif.type || 'ether',
-                running: rif.running === 'true',
-                disabled: rif.disabled === 'true',
-                comment: rif.comment || '',
-                rxBps: Math.floor(Math.random() * 5000000) + 500000,
-                txBps: Math.floor(Math.random() * 12000000) + 1200000,
-                rxBytes: rxB || 1024 * 1024 * 500,
-                txBytes: txB || 1024 * 1024 * 1200,
-                rxPacketsSec: Math.floor(Math.random() * 500) + 100,
-                txPacketsSec: Math.floor(Math.random() * 900) + 200
-              });
+        const [realIfaces, sysRes] = await Promise.allSettled([
+          ros.getInterfaces(),
+          ros.getSystemResource()
+        ]);
+
+        if (realIfaces.status !== 'fulfilled' || !Array.isArray(realIfaces.value)) {
+          throw new Error('Falha ao comunicar com a RB via API port 8728');
+        }
+
+        server.status = 'connected';
+        if (sysRes.status === 'fulfilled' && sysRes.value) {
+          if (sysRes.value['cpu-load']) server.cpuLoad = Number(sysRes.value['cpu-load']);
+          if (sysRes.value.uptime) server.uptime = sysRes.value.uptime;
+          if (sysRes.value['board-name']) server.routerModel = sysRes.value['board-name'];
+          if (sysRes.value.version) server.routerOsVersion = sysRes.value.version;
+        }
+
+        const ifacesList = realIfaces.value;
+        const runningNames = ifacesList
+          .filter((i: any) => i.running === 'true' && !i.name.startsWith('<pppoe-'))
+          .map((i: any) => i.name);
+
+        let liveRates: Record<string, { rxBps: number; txBps: number }> = {};
+        if (runningNames.length > 0) {
+          try {
+            const monResult = await ros.getInterfaceMonitor(runningNames.slice(0, 12));
+            for (const m of monResult) {
+              if (m.name) {
+                liveRates[m.name] = {
+                  rxBps: Number(m['rx-bits-per-second']) || 0,
+                  txBps: Number(m['tx-bits-per-second']) || 0
+                };
+              }
             }
+          } catch {
+            // Delta fallback
           }
         }
-      } catch {
-        // Router physical connection silent fallback
+
+        const parsedIfaces = [];
+        let serverRxTotal = 0;
+        let serverTxTotal = 0;
+
+        for (const rif of ifacesList) {
+          const name = rif.name || 'interface';
+          const rxBytes = Number(rif['rx-byte']) || 0;
+          const txBytes = Number(rif['tx-byte']) || 0;
+          const running = rif.running === 'true';
+          const disabled = rif.disabled === 'true';
+
+          let rxBps = 0;
+          let txBps = 0;
+
+          if (liveRates[name]) {
+            rxBps = liveRates[name].rxBps;
+            txBps = liveRates[name].txBps;
+          } else {
+            const prevKey = `${server.id}:${name}`;
+            const prev = this.prevIfaceBytes.get(prevKey);
+            if (prev && prev.timestamp < now) {
+              const dt = (now - prev.timestamp) / 1000;
+              if (dt >= 1 && dt <= 60) {
+                if (rxBytes >= prev.rxBytes) rxBps = Math.round(((rxBytes - prev.rxBytes) * 8) / dt);
+                if (txBytes >= prev.txBytes) txBps = Math.round(((txBytes - prev.txBytes) * 8) / dt);
+              }
+            }
+            this.prevIfaceBytes.set(prevKey, { rxBytes, txBytes, timestamp: now });
+          }
+
+          if (running) {
+            serverRxTotal += rxBps;
+            serverTxTotal += txBps;
+          }
+
+          parsedIfaces.push({
+            name,
+            type: rif.type || 'ether',
+            running,
+            disabled,
+            comment: rif.comment || '',
+            rxBps,
+            txBps,
+            rxBytes,
+            txBytes,
+            rxPacketsSec: Math.round(rxBps / 12000),
+            txPacketsSec: Math.round(txBps / 12000)
+          });
+        }
+
+        netRx += serverRxTotal;
+        netTx += serverTxTotal;
+
+        results.push({
+          serverId: server.id,
+          serverName: server.name,
+          host: server.host,
+          port: server.port,
+          location: server.location || 'Localidade Principal',
+          status: 'connected',
+          cpuLoad: server.cpuLoad || 0,
+          memoryFreeMb: sysRes.status === 'fulfilled' && sysRes.value?.['free-memory'] ? Math.round(Number(sysRes.value['free-memory']) / (1024 * 1024)) : 0,
+          uptime: server.uptime || 'Online',
+          totalRxBps: serverRxTotal,
+          totalTxBps: serverTxTotal,
+          interfaces: parsedIfaces
+        });
+      } catch (err: any) {
+        server.status = 'error';
+        results.push({
+          serverId: server.id,
+          serverName: server.name,
+          host: server.host,
+          port: server.port,
+          location: server.location || 'Localidade Principal',
+          status: 'error',
+          errorMessage: `RB Desconectada / Sem resposta na porta ${server.port}: ${err.message}`,
+          cpuLoad: 0,
+          memoryFreeMb: 0,
+          uptime: 'Desconectado',
+          totalRxBps: 0,
+          totalTxBps: 0,
+          interfaces: []
+        });
       }
-
-      const totalRx = ifaces.reduce((sum, i) => sum + i.rxBps, 0);
-      const totalTx = ifaces.reduce((sum, i) => sum + i.txBps, 0);
-      netRx += totalRx;
-      netTx += totalTx;
-
-      results.push({
-        serverId: server.id,
-        serverName: server.name,
-        host: server.host,
-        port: server.port,
-        location: server.location || 'Localidade Principal',
-        status: server.status || 'connected',
-        cpuLoad: server.cpuLoad || Math.floor(Math.random() * 8) + 2,
-        memoryFreeMb: 890,
-        uptime: server.uptime || '14d 06:33:12',
-        totalRxBps: totalRx,
-        totalTxBps: totalTx,
-        interfaces: ifaces
-      });
     }
 
     return {
@@ -617,25 +659,43 @@ class MikrotikService {
     };
   }
 
-  // Active Connections & Online/Offline status across all registered MikroTik RBs
+  // 100% REAL Active Connections directly queried from RouterOS (/ppp/active/print)
   public async getAllRbsActiveConnections() {
     const activeConnections: any[] = [];
     const onlineUsernames = new Set<string>();
+    const authFailedUsernames = new Map<string, string>();
+    const serverStatuses: Record<string, { status: string; error?: string }> = {};
+    const now = Date.now();
 
     for (const server of db.servers) {
-      // Find clients assigned to this server (or default)
-      const serverClients = db.clients.filter(c => (c.serverId || db.servers[0]?.id) === server.id);
-
-      // Check real router /ppp/active
-      let realActives: any[] = [];
       try {
         const ros = this.getClient(server);
-        realActives = await ros.getActiveSessions();
-      } catch {
-        // Fallback to active status clients
-      }
+        const [realActivesRes, pppLogsRes] = await Promise.allSettled([
+          ros.getActiveSessions(),
+          ros.getPppLogs()
+        ]);
 
-      if (realActives.length > 0) {
+        if (realActivesRes.status !== 'fulfilled' || !Array.isArray(realActivesRes.value)) {
+          throw new Error('Falha ao comunicar com a RB via API port 8728');
+        }
+
+        const realActives = realActivesRes.value;
+        server.status = 'connected';
+        serverStatuses[server.id] = { status: 'connected' };
+
+        // Parse recent PPP authentication errors (e.g. wrong password on customer router)
+        if (pppLogsRes.status === 'fulfilled' && Array.isArray(pppLogsRes.value)) {
+          for (const entry of pppLogsRes.value) {
+            const msg = entry.message || '';
+            // Example RouterOS log: "<pppoe-junior>: user junior authentication failed"
+            const match = msg.match(/user\s+([^\s:]+)\s+authentication failed/i) || msg.match(/<pppoe-([^>]+)>:\s+authentication failed/i);
+            if (match && match[1]) {
+              const u = match[1].trim();
+              authFailedUsernames.set(u, entry.time ? `Falha de autenticação às ${entry.time}: Senha PPPoE incorreta no roteador` : 'Senha PPPoE incorreta no roteador do assinante');
+            }
+          }
+        }
+
         for (const act of realActives) {
           const username = act.name || act.user;
           if (!username) continue;
@@ -645,8 +705,23 @@ class MikrotikService {
           const plan = client ? db.plans.find(p => p.id === client.planId) : null;
           const tower = client ? db.towers.find(t => t.id === client.towerId) : null;
 
-          const rxK = Math.floor(Math.random() * ((plan?.speedDown || 20) * 800)) + 300;
-          const txK = Math.floor(rxK * 0.25) + 60;
+          // Compute real throughput based on actual RouterOS bytes transferred
+          const rxBytes = Number(act['limit-bytes-in']) || Number(act['bytes-in']) || 0;
+          const txBytes = Number(act['limit-bytes-out']) || Number(act['bytes-out']) || 0;
+
+          let rxRateKbps = 0;
+          let txRateKbps = 0;
+
+          const prevKey = `${server.id}:${username}`;
+          const prev = this.prevSessionBytes.get(prevKey);
+          if (prev && prev.timestamp < now) {
+            const dt = (now - prev.timestamp) / 1000;
+            if (dt >= 1 && dt <= 60) {
+              if (rxBytes >= prev.rxBytes) rxRateKbps = Math.round(((rxBytes - prev.rxBytes) * 8) / (dt * 1024));
+              if (txBytes >= prev.txBytes) txRateKbps = Math.round(((txBytes - prev.txBytes) * 8) / (dt * 1024));
+            }
+          }
+          this.prevSessionBytes.set(prevKey, { rxBytes, txBytes, timestamp: now });
 
           activeConnections.push({
             id: act['.id'] || `act-${username}`,
@@ -656,80 +731,64 @@ class MikrotikService {
             username,
             clientName: client?.name || `Cliente ${username}`,
             clientPhone: client?.phone || '',
-            planName: plan?.name || 'Plano Rural',
-            ipAddress: act.address || client?.ipAddress || '10.50.0.10',
-            callerId: act['caller-id'] || client?.macAddress || 'DC:9F:DB:12:34:56',
-            uptime: act.uptime || '02h 15m 30s',
-            uptimeSeconds: 8130,
-            rxRateKbps: rxK,
-            txRateKbps: txK,
-            rxBytes: 1024 * 1024 * 850,
-            txBytes: 1024 * 1024 * 210,
+            planName: plan?.name || 'PPPoE RouterOS',
+            ipAddress: act.address || client?.ipAddress || 'Dinâmico',
+            callerId: act['caller-id'] || client?.macAddress || 'Não informado',
+            uptime: act.uptime || 'Conectado agora',
+            uptimeSeconds: this.parseRouterOsUptime(act.uptime || '0s'),
+            rxRateKbps,
+            txRateKbps,
+            rxBytes,
+            txBytes,
             interfaceName: `<pppoe-${username}>`,
             status: client?.status || 'active',
             ruralLocation: client?.ruralLocation || server.location,
             towerName: tower?.name || server.name
           });
         }
-      } else {
-        // Emulate active connections for clients marked active on this server
-        const activeClients = serverClients.filter(c => c.status === 'active');
-        activeClients.forEach((client, idx) => {
-          onlineUsernames.add(client.pppoeUsername);
-          const plan = db.plans.find(p => p.id === client.planId);
-          const tower = db.towers.find(t => t.id === client.towerId);
-
-          const maxDownKbps = (plan?.speedDown || 15) * 1024;
-          const rxRateKbps = Math.floor(Math.random() * (maxDownKbps * 0.75)) + 150;
-          const txRateKbps = Math.floor(rxRateKbps * 0.22) + 50;
-
-          const h = (idx * 5 + 2) % 48;
-          const m = (idx * 11 + 14) % 60;
-          const s = (idx * 17 + 8) % 60;
-
-          activeConnections.push({
-            id: `act-${server.id}-${client.id}`,
-            serverId: server.id,
-            serverName: server.name,
-            serverHost: server.host,
-            username: client.pppoeUsername,
-            clientName: client.name,
-            clientPhone: client.phone,
-            planName: plan?.name || 'Plano Rural Padrão',
-            ipAddress: client.ipAddress || `10.50.${idx + 1}.100`,
-            callerId: client.macAddress || `DC:9F:DB:${(15 + idx).toString(16)}:4A:${(30 + idx).toString(16)}`,
-            uptime: `${h}h ${m}m ${s}s`,
-            uptimeSeconds: h * 3600 + m * 60 + s,
-            rxRateKbps,
-            txRateKbps,
-            rxBytes: 1024 * 1024 * (idx * 480 + 250),
-            txBytes: 1024 * 1024 * (idx * 90 + 55),
-            interfaceName: `<pppoe-${client.pppoeUsername}>`,
-            status: client.status,
-            ruralLocation: client.ruralLocation,
-            towerName: tower?.name || server.name
-          });
-        });
+      } catch (err: any) {
+        server.status = 'error';
+        serverStatuses[server.id] = { 
+          status: 'error', 
+          error: `RB ${server.name} (${server.host}) desconectada ou inacessível: ${err.message}` 
+        };
       }
     }
 
-    // Determine offline clients
+    this.lastOnlineSessionsCount = activeConnections.length;
+
+    // Offline clients are clients registered in DB who DO NOT have an active session in any connected router
     const offlineClients = db.clients
       .filter(c => !onlineUsernames.has(c.pppoeUsername))
       .map(c => {
         const plan = db.plans.find(p => p.id === c.planId);
         const srv = db.servers.find(s => s.id === c.serverId) || db.servers[0];
+        const srvInfo = srv ? serverStatuses[srv.id] : null;
+
+        let lastSeenText = 'Desconectado (Roteador desligado ou sem sinal)';
+        let isAuthFailed = false;
+
+        if (c.status === 'blocked') {
+          lastSeenText = 'Bloqueado por Inadimplência (Corte MikroTik)';
+        } else if (srvInfo?.status === 'error') {
+          lastSeenText = `🔴 RB '${srv?.name || 'Concentradora'}' Desconectada / Inacessível na porta 8728`;
+        } else if (authFailedUsernames.has(c.pppoeUsername)) {
+          isAuthFailed = true;
+          lastSeenText = `⚠️ Senha PPPoE Incorreta / Falha de Autenticação no MikroTik: ${authFailedUsernames.get(c.pppoeUsername)}`;
+        }
+
         return {
           id: c.id,
           name: c.name,
           pppoeUsername: c.pppoeUsername,
           phone: c.phone,
           ruralLocation: c.ruralLocation,
-          planName: plan?.name,
+          planName: plan?.name || 'Plano Padrão',
           status: c.status,
           serverId: srv?.id,
           serverName: srv?.name,
-          lastSeen: c.status === 'blocked' ? 'Bloqueado por Inadimplência' : 'Desconectado há 45m'
+          isAuthFailed,
+          lastSeen: lastSeenText
         };
       });
 
@@ -739,6 +798,7 @@ class MikrotikService {
     return {
       activeConnections,
       offlineClients,
+      serverStatuses,
       summary: {
         totalOnline: activeConnections.length,
         totalOffline: offlineClients.length,
@@ -754,12 +814,12 @@ class MikrotikService {
   public getSystemInfo() {
     const defaultServer = this.resolveServer();
     return {
-      model: defaultServer.routerModel || db.mikrotikConfig.routerModel,
-      version: defaultServer.routerOsVersion || db.mikrotikConfig.routerOsVersion,
-      cpuLoad: defaultServer.cpuLoad || 2,
+      model: defaultServer.routerModel || db.mikrotikConfig.routerModel || 'MikroTik RouterOS',
+      version: defaultServer.routerOsVersion || db.mikrotikConfig.routerOsVersion || 'v7.x',
+      cpuLoad: defaultServer.cpuLoad || 0,
       freeMemoryMb: db.mikrotikConfig.freeMemoryMb,
-      uptime: defaultServer.uptime || db.mikrotikConfig.uptime,
-      activeSessionsCount: db.clients.filter(c => c.status === 'active').length,
+      uptime: defaultServer.uptime || 'Desconectado',
+      activeSessionsCount: this.lastOnlineSessionsCount,
       totalSecretsCount: db.clients.length,
       blockedSecretsCount: db.clients.filter(c => c.status === 'blocked').length,
       totalServers: db.servers.length
