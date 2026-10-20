@@ -670,9 +670,11 @@ class MikrotikService {
     for (const server of db.servers) {
       try {
         const ros = this.getClient(server);
-        const [realActivesRes, pppLogsRes] = await Promise.allSettled([
+        const [realActivesRes, pppLogsRes, ifacesRes, queuesRes] = await Promise.allSettled([
           ros.getActiveSessions(),
-          ros.getPppLogs()
+          ros.getPppLogs(),
+          ros.getInterfaces(),
+          ros.getSimpleQueues()
         ]);
 
         if (realActivesRes.status !== 'fulfilled' || !Array.isArray(realActivesRes.value)) {
@@ -682,6 +684,28 @@ class MikrotikService {
         const realActives = realActivesRes.value;
         server.status = 'connected';
         serverStatuses[server.id] = { status: 'connected' };
+
+        // Parse Simple Queues rates (RouterOS automatically creates dynamic simple queues for PPPoE)
+        const queueRatesMap = new Map<string, { rxBps: number; txBps: number }>();
+        if (queuesRes.status === 'fulfilled' && Array.isArray(queuesRes.value)) {
+          for (const q of queuesRes.value) {
+            const qName = q.name || '';
+            const rateStr = q.rate || '';
+            // RouterOS rate format: "upload_bps/download_bps" (rx/tx from router perspective)
+            if (rateStr && rateStr.includes('/')) {
+              const parts = rateStr.split('/');
+              const upBps = parseInt(parts[0], 10) || 0;
+              const downBps = parseInt(parts[1], 10) || 0;
+              if (upBps > 0 || downBps > 0) {
+                queueRatesMap.set(qName, { rxBps: upBps, txBps: downBps });
+                // Also index without angle brackets
+                if (qName.startsWith('<') && qName.endsWith('>')) {
+                  queueRatesMap.set(qName.slice(1, -1), { rxBps: upBps, txBps: downBps });
+                }
+              }
+            }
+          }
+        }
 
         // Parse recent PPP authentication errors (e.g. wrong password on customer router)
         if (pppLogsRes.status === 'fulfilled' && Array.isArray(pppLogsRes.value)) {
@@ -696,6 +720,43 @@ class MikrotikService {
           }
         }
 
+        // Map all interfaces returned by /interface/print (including <pppoe-*> dynamic interfaces)
+        const ifaceMap = new Map<string, any>();
+        if (ifacesRes.status === 'fulfilled' && Array.isArray(ifacesRes.value)) {
+          for (const rif of ifacesRes.value) {
+            if (rif.name) {
+              ifaceMap.set(rif.name, rif);
+              if (rif.name.startsWith('<') && rif.name.endsWith('>')) {
+                ifaceMap.set(rif.name.slice(1, -1), rif);
+              }
+            }
+          }
+        }
+
+        // Try querying live monitor-traffic for active PPPoE dynamic interfaces
+        const pppoeNamesToMonitor = realActives
+          .slice(0, 16)
+          .map(a => `<pppoe-${a.name || a.user}>`);
+
+        let liveRates: Record<string, { rxBps: number; txBps: number }> = {};
+        if (pppoeNamesToMonitor.length > 0) {
+          try {
+            const monRes = await ros.getInterfaceMonitor(pppoeNamesToMonitor);
+            if (Array.isArray(monRes)) {
+              for (const m of monRes) {
+                if (m.name) {
+                  liveRates[m.name] = {
+                    rxBps: Number(m['rx-bits-per-second']) || 0,
+                    txBps: Number(m['tx-bits-per-second']) || 0
+                  };
+                }
+              }
+            }
+          } catch {
+            // Delta fallback from interface byte counters
+          }
+        }
+
         for (const act of realActives) {
           const username = act.name || act.user;
           if (!username) continue;
@@ -705,23 +766,49 @@ class MikrotikService {
           const plan = client ? db.plans.find(p => p.id === client.planId) : null;
           const tower = client ? db.towers.find(t => t.id === client.towerId) : null;
 
-          // Compute real throughput based on actual RouterOS bytes transferred
-          const rxBytes = Number(act['limit-bytes-in']) || Number(act['bytes-in']) || 0;
-          const txBytes = Number(act['limit-bytes-out']) || Number(act['bytes-out']) || 0;
+          const ifaceName = `<pppoe-${username}>`;
+          const pppoeIface = ifaceMap.get(ifaceName) || ifaceMap.get(`pppoe-${username}`);
+          const live = liveRates[ifaceName] || liveRates[`pppoe-${username}`];
+          const queueRate = queueRatesMap.get(ifaceName) || queueRatesMap.get(`pppoe-${username}`) || queueRatesMap.get(username);
 
-          let rxRateKbps = 0;
-          let txRateKbps = 0;
+          // In RouterOS:
+          // tx on customer interface = traffic transmitted TO customer = DOWNLOAD!
+          // rx on customer interface = traffic received FROM customer = UPLOAD!
+          let downloadKbps = 0;
+          let uploadKbps = 0;
 
-          const prevKey = `${server.id}:${username}`;
-          const prev = this.prevSessionBytes.get(prevKey);
-          if (prev && prev.timestamp < now) {
-            const dt = (now - prev.timestamp) / 1000;
-            if (dt >= 1 && dt <= 60) {
-              if (rxBytes >= prev.rxBytes) rxRateKbps = Math.round(((rxBytes - prev.rxBytes) * 8) / (dt * 1024));
-              if (txBytes >= prev.txBytes) txRateKbps = Math.round(((txBytes - prev.txBytes) * 8) / (dt * 1024));
+          const ifaceTxBytes = Number(pppoeIface?.['tx-byte']) || Number(act['limit-bytes-out']) || 0;
+          const ifaceRxBytes = Number(pppoeIface?.['rx-byte']) || Number(act['limit-bytes-in']) || 0;
+
+          if (live && (live.txBps > 0 || live.rxBps > 0)) {
+            downloadKbps = Math.round(live.txBps / 1024);
+            uploadKbps = Math.round(live.rxBps / 1024);
+          } else if (queueRate && (queueRate.txBps > 0 || queueRate.rxBps > 0)) {
+            // Queue rate from /queue/simple/print
+            downloadKbps = Math.round(queueRate.txBps / 1024);
+            uploadKbps = Math.round(queueRate.rxBps / 1024);
+          } else {
+            const prevKey = `${server.id}:${username}`;
+            const prev = this.prevSessionBytes.get(prevKey);
+            if (prev && prev.timestamp < now) {
+              const dt = (now - prev.timestamp) / 1000;
+              if (dt >= 1 && dt <= 60) {
+                if (ifaceTxBytes >= prev.txBytes) {
+                  downloadKbps = Math.round(((ifaceTxBytes - prev.txBytes) * 8) / (dt * 1024));
+                }
+                if (ifaceRxBytes >= prev.rxBytes) {
+                  uploadKbps = Math.round(((ifaceRxBytes - prev.rxBytes) * 8) / (dt * 1024));
+                }
+              }
             }
           }
-          this.prevSessionBytes.set(prevKey, { rxBytes, txBytes, timestamp: now });
+
+          // Always record latest byte counter for next delta
+          this.prevSessionBytes.set(`${server.id}:${username}`, {
+            rxBytes: ifaceRxBytes,
+            txBytes: ifaceTxBytes,
+            timestamp: now
+          });
 
           activeConnections.push({
             id: act['.id'] || `act-${username}`,
@@ -736,11 +823,11 @@ class MikrotikService {
             callerId: act['caller-id'] || client?.macAddress || 'Não informado',
             uptime: act.uptime || 'Conectado agora',
             uptimeSeconds: this.parseRouterOsUptime(act.uptime || '0s'),
-            rxRateKbps,
-            txRateKbps,
-            rxBytes,
-            txBytes,
-            interfaceName: `<pppoe-${username}>`,
+            rxRateKbps: downloadKbps, // Download rate (matches ↓ arrow)
+            txRateKbps: uploadKbps,   // Upload rate (matches ↑ arrow)
+            rxBytes: ifaceTxBytes,    // Total Download bytes
+            txBytes: ifaceRxBytes,    // Total Upload bytes
+            interfaceName: ifaceName,
             status: client?.status || 'active',
             ruralLocation: client?.ruralLocation || server.location,
             towerName: tower?.name || server.name
@@ -823,6 +910,140 @@ class MikrotikService {
       totalSecretsCount: db.clients.length,
       blockedSecretsCount: db.clients.filter(c => c.status === 'blocked').length,
       totalServers: db.servers.length
+    };
+  }
+
+  // Clean up all Beesweb traces from all connected MikroTik RBs
+  public async cleanupBeesweb(targetServerId?: string) {
+    const serversToClean = targetServerId 
+      ? db.servers.filter(s => s.id === targetServerId)
+      : (db.servers.length > 0 ? db.servers : [this.resolveServer()]);
+
+    const results = [];
+    let totalRemoved = 0;
+
+    for (const server of serversToClean) {
+      try {
+        const ros = this.getClient(server);
+        const res = await ros.cleanupBeesweb();
+        const removed = res.removedSchedulers + res.removedScripts + res.removedLists + res.removedProfiles + res.cleanedSecrets;
+        totalRemoved += removed;
+        results.push({
+          server: server.name,
+          host: server.host,
+          success: true,
+          details: res,
+          message: removed > 0 
+            ? `RB ${server.name}: ${removed} resquícios do Beesweb removidos (${res.removedSchedulers} schedulers, ${res.removedScripts} scripts, ${res.removedLists} address-lists, ${res.removedProfiles} profiles).`
+            : `RB ${server.name}: Nenhum resquício do Beesweb encontrado.`
+        });
+
+        this.logCommand(
+          `/system script/scheduler/firewall/profile remove [beesweb]`,
+          `!done (${removed} itens limpos)`,
+          true,
+          server.name
+        );
+      } catch (err: any) {
+        results.push({
+          server: server.name,
+          host: server.host,
+          success: false,
+          message: `Erro na RB ${server.name}: ${err.message}`
+        });
+      }
+    }
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'CLEANUP_BEESWEB',
+      message: `Limpeza do Beesweb executada: ${totalRemoved} itens limpos nas RBs MikroTik.`,
+      status: 'success'
+    });
+    db.save();
+
+    return {
+      success: results.some(r => r.success),
+      totalRemoved,
+      results,
+      message: totalRemoved > 0
+        ? `Limpeza concluída! ${totalRemoved} itens antigos do Beesweb foram eliminados das RBs.`
+        : `Nenhum resquício do Beesweb foi detectado nas RBs MikroTik conectadas.`
+    };
+  }
+
+  // Optimize Bandwidth Control (Disable FastTrack to enable Simple Queues / Plan Rate Limits)
+  public async optimizeBandwidth(targetServerId?: string) {
+    const serversToOptimize = targetServerId 
+      ? db.servers.filter(s => s.id === targetServerId)
+      : (db.servers.length > 0 ? db.servers : [this.resolveServer()]);
+
+    const results = [];
+
+    for (const server of serversToOptimize) {
+      try {
+        const ros = this.getClient(server);
+        const res = await ros.optimizeBandwidthControl();
+        results.push({
+          server: server.name,
+          host: server.host,
+          success: true,
+          ...res
+        });
+
+        this.logCommand(
+          `/ip firewall filter set [find action=fasttrack-connection] disabled=yes`,
+          `!done (${res.message})`,
+          true,
+          server.name
+        );
+      } catch (err: any) {
+        results.push({
+          server: server.name,
+          host: server.host,
+          success: false,
+          message: `Erro ao otimizar RB ${server.name}: ${err.message}`
+        });
+      }
+    }
+
+    return {
+      success: results.some(r => r.success),
+      results,
+      message: results.map(r => `${r.server}: ${r.message}`).join(' | ')
+    };
+  }
+
+  // Get ready-to-use Terminal scripts for MikroTik Winbox/CLI
+  public getTerminalScripts() {
+    return {
+      fasttrackFix: `# =====================================================================
+# 1. CORRIGIR CONTROLE DE BANDA & TESTE DE VELOCIDADE (DESATIVAR FASTTRACK)
+# O FastTrack faz os pacotes ignorarem as Queues Simples do PPPoE.
+# Execute este comando no Terminal do Winbox para fazer as Queues funcionarem:
+# =====================================================================
+/ip firewall filter disable [find action=fasttrack-connection]
+
+# OU se preferir manter FastTrack apenas na WAN, excluindo PPPoE:
+# /ip firewall filter set [find action=fasttrack-connection] in-interface=!all-ppp
+`,
+      beeswebCleanup: `# =====================================================================
+# 2. LIMPAR TOTALMENTE QUALQUER RESQUÍCIO DO BEESWEB NA RB MIKROTIK
+# Execute no Terminal do Winbox para remover agendamentos, scripts e listas:
+# =====================================================================
+/system scheduler remove [find name~"beesweb"]
+/system script remove [find name~"beesweb"]
+/ip firewall address-list remove [find list~"beesweb"]
+/ppp profile remove [find name~"beesweb"]
+/ppp profile remove [find comment~"beesweb"]
+/ppp secret set [find comment~"beesweb"] comment="Migrado AgroISP"
+`,
+      reconnectCustomer: `# =====================================================================
+# 3. DERRUBAR CONEXÃO PARA O ROTEADOR DO CLIENTE ASSUMIR A NOVA VELOCIDADE
+# No RouterOS, alterar o plano só tem efeito após o cliente discar novamente:
+# =====================================================================
+/ppp active remove [find name="junior"]
+`
     };
   }
 }

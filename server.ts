@@ -9,12 +9,10 @@ import { Client, Plan, Tower, Invoice, User, UserRole, Carne, MikrotikServer } f
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = 3000;
 
 app.use(express.json());
-
 // -----------------------------------------------------------------------------
 // 0. AUTHENTICATION & RBAC (JWT & SESSIONS)
 // -----------------------------------------------------------------------------
@@ -823,6 +821,30 @@ app.get('/api/mikrotik/cli-script', (req, res) => {
   const client = db.clients.find(c => c.id === clientId) || db.clients[0];
   const script = mikrotikService.getCliScript((action as any) || 'sync', client);
   res.json({ script, client });
+});
+
+app.post('/api/mikrotik/cleanup-beesweb', async (req, res) => {
+  try {
+    const { serverId } = req.body || {};
+    const result = await mikrotikService.cleanupBeesweb(serverId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao executar limpeza do Beesweb' });
+  }
+});
+
+app.post('/api/mikrotik/optimize-bandwidth', async (req, res) => {
+  try {
+    const { serverId } = req.body || {};
+    const result = await mikrotikService.optimizeBandwidth(serverId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao otimizar controle de banda' });
+  }
+});
+
+app.get('/api/mikrotik/terminal-scripts', (req, res) => {
+  res.json(mikrotikService.getTerminalScripts());
 });
 
 // -----------------------------------------------------------------------------

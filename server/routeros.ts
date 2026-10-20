@@ -635,4 +635,152 @@ export class RouterOSClient {
       }
     });
   }
+
+  // Query live simple queues (dynamic PPPoE queues created by RouterOS for rate limiting)
+  public async getSimpleQueues(): Promise<any[]> {
+    return this.executeTransaction(async (send) => {
+      try {
+        const resp = await send(['/queue/simple/print']);
+        return resp.data || [];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  // Clean up any remnants of legacy 'beesweb' system from MikroTik RouterOS
+  public async cleanupBeesweb(): Promise<{ removedSchedulers: number; removedScripts: number; removedLists: number; removedProfiles: number; cleanedSecrets: number }> {
+    return this.executeTransaction(async (send) => {
+      let removedSchedulers = 0;
+      let removedScripts = 0;
+      let removedLists = 0;
+      let removedProfiles = 0;
+      let cleanedSecrets = 0;
+
+      // 1. Schedulers
+      try {
+        const schedResp = await send(['/system/scheduler/print']);
+        if (schedResp.data) {
+          for (const s of schedResp.data) {
+            const name = (s.name || '').toLowerCase();
+            if (name.includes('beesweb') || name.includes('bees')) {
+              if (s['.id']) {
+                await send(['/system/scheduler/remove', `=.id=${s['.id']}`]);
+                removedSchedulers++;
+              }
+            }
+          }
+        }
+      } catch {}
+
+      // 2. Scripts
+      try {
+        const scriptResp = await send(['/system/script/print']);
+        if (scriptResp.data) {
+          for (const sc of scriptResp.data) {
+            const name = (sc.name || '').toLowerCase();
+            if (name.includes('beesweb') || name.includes('bees')) {
+              if (sc['.id']) {
+                await send(['/system/script/remove', `=.id=${sc['.id']}`]);
+                removedScripts++;
+              }
+            }
+          }
+        }
+      } catch {}
+
+      // 3. Address Lists
+      try {
+        const listResp = await send(['/ip/firewall/address-list/print']);
+        if (listResp.data) {
+          for (const al of listResp.data) {
+            const list = (al.list || '').toLowerCase();
+            if (list.includes('beesweb') || list.includes('bees')) {
+              if (al['.id']) {
+                await send(['/ip/firewall/address-list/remove', `=.id=${al['.id']}`]);
+                removedLists++;
+              }
+            }
+          }
+        }
+      } catch {}
+
+      // 4. PPP Profiles
+      try {
+        const profResp = await send(['/ppp/profile/print']);
+        if (profResp.data) {
+          for (const pf of profResp.data) {
+            const name = (pf.name || '').toLowerCase();
+            const comment = (pf.comment || '').toLowerCase();
+            if (name.includes('beesweb') || comment.includes('beesweb')) {
+              if (pf['.id'] && pf.name !== 'default' && pf.name !== 'default-encryption') {
+                await send(['/ppp/profile/remove', `=.id=${pf['.id']}`]);
+                removedProfiles++;
+              }
+            }
+          }
+        }
+      } catch {}
+
+      // 5. Secrets comments
+      try {
+        const secResp = await send(['/ppp/secret/print']);
+        if (secResp.data) {
+          for (const sec of secResp.data) {
+            const comment = (sec.comment || '').toLowerCase();
+            if (comment.includes('beesweb')) {
+              if (sec['.id']) {
+                await send(['/ppp/secret/set', `=.id=${sec['.id']}`, `=comment=Importado AgroISP`]);
+                cleanedSecrets++;
+              }
+            }
+          }
+        }
+      } catch {}
+
+      return {
+        removedSchedulers,
+        removedScripts,
+        removedLists,
+        removedProfiles,
+        cleanedSecrets
+      };
+    });
+  }
+
+  // Optimize Bandwidth Control: Disable FastTrack rule so Simple Queues take effect on speed tests
+  public async optimizeBandwidthControl(): Promise<{ fasttrackDisabled: boolean; message: string }> {
+    return this.executeTransaction(async (send) => {
+      try {
+        const filterResp = await send(['/ip/firewall/filter/print']);
+        let fasttrackFound = false;
+        if (filterResp.data) {
+          for (const rule of filterResp.data) {
+            if (rule.action === 'fasttrack-connection') {
+              fasttrackFound = true;
+              if (rule.disabled !== 'true' && rule['.id']) {
+                await send(['/ip/firewall/filter/set', `=.id=${rule['.id']}`, '=disabled=yes']);
+                return {
+                  fasttrackDisabled: true,
+                  message: 'Regra de FastTrack desativada com sucesso! Agora o controle de banda (Queues) funcionará nos testes de velocidade.'
+                };
+              }
+            }
+          }
+        }
+        return {
+          fasttrackDisabled: false,
+          message: fasttrackFound 
+            ? 'Regra de FastTrack já estava desativada na RB.' 
+            : 'Nenhuma regra de FastTrack conflitante encontrada na RB. O controle de banda está livre para atuar!'
+        };
+      } catch (err: any) {
+        return {
+          fasttrackDisabled: false,
+          message: `Erro ao verificar FastTrack: ${err.message}`
+        };
+      }
+    });
+  }
 }
+
