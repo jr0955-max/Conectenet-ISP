@@ -11,6 +11,7 @@ import {
   Trash2, 
   FileText, 
   Wifi, 
+  WifiOff,
   Radio, 
   MapPin, 
   Key, 
@@ -59,11 +60,16 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   companySettings
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'active' | 'blocked'>('all');
   const [serverFilter, setServerFilter] = useState<string>('all');
   const [towerFilter, setTowerFilter] = useState<string>('all');
   const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
   const [copiedBatch, setCopiedBatch] = useState(false);
+
+  const onlineCount = clients.filter(c => activeSessions.some(s => s.username === c.pppoeUsername)).length;
+  const offlineCount = clients.length - onlineCount;
+  const activeCount = clients.filter(c => c.status === 'active').length;
+  const blockedCount = clients.filter(c => c.status === 'blocked').length;
 
   const handleExportAllSecrets = () => {
     if (clients.length === 0) return;
@@ -97,7 +103,13 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       client.ruralLocation.toLowerCase().includes(searchTerm.toLowerCase()) ||
       client.phone.includes(searchTerm);
 
-    const matchesStatus = statusFilter === 'all' || client.status === statusFilter;
+    const isOnline = activeSessions.some(s => s.username === client.pppoeUsername);
+    let matchesStatus = true;
+    if (statusFilter === 'active') matchesStatus = client.status === 'active';
+    else if (statusFilter === 'blocked') matchesStatus = client.status === 'blocked';
+    else if (statusFilter === 'online') matchesStatus = isOnline;
+    else if (statusFilter === 'offline') matchesStatus = !isOnline;
+
     const matchesTower = towerFilter === 'all' || client.towerId === towerFilter;
     const matchesServer = serverFilter === 'all' || client.serverId === serverFilter;
 
@@ -175,6 +187,71 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           </div>
         </div>
 
+        {/* Quick Filter Buttons (Online / Offline / Ativos / Bloqueados) */}
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2 pt-1 border-t border-slate-800/80">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+              statusFilter === 'all'
+                ? 'bg-slate-700 text-white shadow-sm ring-1 ring-slate-500'
+                : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Todos ({clients.length})</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('online')}
+            title="Clique para listar somente os clientes com conexão ativa agora no MikroTik"
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer ${
+              statusFilter === 'online'
+                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950 font-bold ring-2 ring-emerald-400/30'
+                : 'bg-slate-950/80 border border-slate-800 text-emerald-400 hover:text-white hover:bg-emerald-950/40 hover:border-emerald-600/40'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <Wifi className="w-3.5 h-3.5" />
+            <span>Clientes Online ({onlineCount})</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('offline')}
+            title="Clique para listar somente os clientes desconectados (sem sessão PPPoE)"
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer ${
+              statusFilter === 'offline'
+                ? 'bg-slate-600 text-white shadow-sm font-bold ring-2 ring-slate-400/30'
+                : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 hover:border-slate-600'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+            <WifiOff className="w-3.5 h-3.5" />
+            <span>Clientes Offline ({offlineCount})</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('active')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              statusFilter === 'active'
+                ? 'bg-teal-700 text-white shadow-sm ring-1 ring-teal-500'
+                : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <span>Cadastros Ativos ({activeCount})</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('blocked')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              statusFilter === 'blocked'
+                ? 'bg-red-700 text-white shadow-sm ring-1 ring-red-500'
+                : 'bg-slate-950/80 border border-slate-800 text-red-400 hover:text-red-300 hover:bg-red-950/30'
+            }`}
+          >
+            <span>Bloqueados / Corte ({blockedCount})</span>
+          </button>
+        </div>
+
         {/* Filters and Search Input */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
           {/* Search */}
@@ -197,8 +274,10 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
               className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition"
             >
               <option value="all">Todos os Status ({clients.length})</option>
-              <option value="active">Somente Ativos ({clients.filter(c => c.status === 'active').length})</option>
-              <option value="blocked">Bloqueados / Corte ({clients.filter(c => c.status === 'blocked').length})</option>
+              <option value="online">🟢 Clientes Online no MikroTik ({onlineCount})</option>
+              <option value="offline">⚪ Clientes Offline / Desconectados ({offlineCount})</option>
+              <option value="active">Somente Cadastros Ativos ({activeCount})</option>
+              <option value="blocked">Bloqueados / Corte ({blockedCount})</option>
             </select>
           </div>
 

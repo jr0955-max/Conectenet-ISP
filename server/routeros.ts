@@ -782,5 +782,203 @@ export class RouterOSClient {
       }
     });
   }
+
+  // Export full RouterOS configuration as executable .rsc script
+  public async exportConfigurationScript(serverName?: string): Promise<{
+    rscContent: string;
+    summary: {
+      secretsCount: number;
+      profilesCount: number;
+      interfacesCount: number;
+      queuesCount: number;
+    };
+    model: string;
+    version: string;
+  }> {
+    return this.executeTransaction(async (send) => {
+      const now = new Date();
+      const dateStr = now.toISOString().replace('T', ' ').substring(0, 19);
+
+      // 1. Identity & Resources
+      const [identRes, resRes, ifacesRes, addrsRes, poolsRes, profsRes, secsRes, queuesRes, filterRes, natRes] = await Promise.all([
+        send(['/system/identity/print']).catch(() => ({ success: false, data: [] })),
+        send(['/system/resource/print']).catch(() => ({ success: false, data: [] })),
+        send(['/interface/print']).catch(() => ({ success: false, data: [] })),
+        send(['/ip/address/print']).catch(() => ({ success: false, data: [] })),
+        send(['/ip/pool/print']).catch(() => ({ success: false, data: [] })),
+        send(['/ppp/profile/print']).catch(() => ({ success: false, data: [] })),
+        send(['/ppp/secret/print']).catch(() => ({ success: false, data: [] })),
+        send(['/queue/simple/print']).catch(() => ({ success: false, data: [] })),
+        send(['/ip/firewall/filter/print']).catch(() => ({ success: false, data: [] })),
+        send(['/ip/firewall/nat/print']).catch(() => ({ success: false, data: [] }))
+      ]);
+
+      const identity = (identRes.data && identRes.data[0]?.name) || serverName || 'MikroTik-Router';
+      const resource = (resRes.data && resRes.data[0]) || {};
+      const model = resource['board-name'] || resource['platform'] || 'MikroTik RouterBOARD';
+      const version = resource['version'] || 'RouterOS v7.x';
+      const uptime = resource['uptime'] || 'desconhecido';
+
+      const ifaces = ifacesRes.data || [];
+      const addrs = addrsRes.data || [];
+      const pools = poolsRes.data || [];
+      const profs = profsRes.data || [];
+      const secs = secsRes.data || [];
+      const queues = queuesRes.data || [];
+      const filters = filterRes.data || [];
+      const nats = natRes.data || [];
+
+      // Build .rsc script
+      const lines: string[] = [];
+
+      lines.push('# ==============================================================================');
+      lines.push('# MIKROTIK ROUTEROS CONFIGURATION SNAPSHOT (.rsc)');
+      lines.push('# Gerado por: AgroISP Pro Automation Engine');
+      lines.push(`# Roteador / Concentrador: ${identity} (${this.host}:${this.port})`);
+      lines.push(`# Modelo do Hardware: ${model}`);
+      lines.push(`# Versão RouterOS: ${version}`);
+      lines.push(`# Uptime na captura: ${uptime}`);
+      lines.push(`# Data do Snapshot: ${dateStr} UTC`);
+      lines.push('# Formato: RouterOS CLI Script (.rsc)');
+      lines.push('# ==============================================================================');
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 1. IDENTIDADE DO SISTEMA');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/system identity');
+      lines.push(`set name="${identity}"`);
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 2. INTERFACES DE REDE');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/interface');
+      if (ifaces.length > 0) {
+        for (const iface of ifaces) {
+          const disabled = iface.disabled === 'true' ? ' disabled=yes' : '';
+          const comment = iface.comment ? ` comment="${iface.comment.replace(/"/g, '')}"` : '';
+          lines.push(`# [${iface.type || 'ether'}] name="${iface.name}" running=${iface.running || 'false'}${comment}${disabled}`);
+        }
+      } else {
+        lines.push('# Nenhuma interface estática retornada.');
+      }
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 3. POOLS DE ENDEREÇOS IP');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/ip pool');
+      if (pools.length > 0) {
+        for (const p of pools) {
+          if (!p.name) continue;
+          lines.push(`add name="${p.name}" ranges=${p.ranges || '10.0.0.2-10.0.0.254'}`);
+        }
+      } else {
+        lines.push('add name="pool-padrao-isp" ranges=10.50.3.10-10.50.3.250');
+      }
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 4. ENDEREÇOS IP & GATEWAYS');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/ip address');
+      if (addrs.length > 0) {
+        for (const a of addrs) {
+          if (!a.address) continue;
+          const comment = a.comment ? ` comment="${a.comment.replace(/"/g, '')}"` : '';
+          lines.push(`add address=${a.address} interface=${a.interface || 'ether1'} network=${a.network || ''}${comment}`);
+        }
+      } else {
+        lines.push('# Endereços dinâmicos da WAN/LAN');
+      }
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 5. PERFIS DE VELOCIDADE & CONTROLE DE BANDA (/ppp profile)');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/ppp profile');
+      for (const p of profs) {
+        if (!p.name) continue;
+        const rate = p['rate-limit'] ? ` rate-limit="${p['rate-limit']}"` : '';
+        const local = p['local-address'] ? ` local-address="${p['local-address']}"` : '';
+        const remote = p['remote-address'] ? ` remote-address="${p['remote-address']}"` : '';
+        const dns = p['dns-server'] ? ` dns-server="${p['dns-server']}"` : '';
+        const comment = p.comment ? ` comment="${p.comment.replace(/"/g, '')}"` : '';
+        lines.push(`add name="${p.name}"${local}${remote}${rate}${dns}${comment}`);
+      }
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 6. CLIENTES & USUÁRIOS PPPoE (/ppp secret)');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/ppp secret');
+      for (const s of secs) {
+        if (!s.name) continue;
+        const profile = s.profile ? ` profile="${s.profile}"` : ' profile="default"';
+        const password = s.password ? ` password="${s.password}"` : ' password=""';
+        const service = s.service ? ` service=${s.service}` : ' service=pppoe';
+        const callerId = s['caller-id'] ? ` caller-id="${s['caller-id']}"` : '';
+        const remote = s['remote-address'] ? ` remote-address=${s['remote-address']}` : '';
+        const disabled = s.disabled === 'true' ? ' disabled=yes' : ' disabled=no';
+        const comment = s.comment ? ` comment="${s.comment.replace(/"/g, '')}"` : '';
+        lines.push(`add name="${s.name}"${password}${profile}${service}${callerId}${remote}${disabled}${comment}`);
+      }
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 7. FILAS SIMPLES DE VELOCIDADE (/queue simple)');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/queue simple');
+      for (const q of queues) {
+        if (!q.name) continue;
+        const maxLimit = q['max-limit'] ? ` max-limit=${q['max-limit']}` : '';
+        const target = q.target ? ` target=${q.target}` : '';
+        const comment = q.comment ? ` comment="${q.comment.replace(/"/g, '')}"` : '';
+        lines.push(`add name="${q.name}"${target}${maxLimit}${comment}`);
+      }
+      lines.push('');
+
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('# 8. REGRAS DE FIREWALL FILTER & NAT');
+      lines.push('# ------------------------------------------------------------------------------');
+      lines.push('/ip firewall filter');
+      for (const f of filters) {
+        const chain = f.chain ? ` chain=${f.chain}` : ' chain=forward';
+        const action = f.action ? ` action=${f.action}` : ' action=accept';
+        const disabled = f.disabled === 'true' ? ' disabled=yes' : '';
+        const comment = f.comment ? ` comment="${f.comment.replace(/"/g, '')}"` : '';
+        lines.push(`add${chain}${action}${disabled}${comment}`);
+      }
+      lines.push('');
+      lines.push('/ip firewall nat');
+      for (const n of nats) {
+        const chain = n.chain ? ` chain=${n.chain}` : ' chain=srcnat';
+        const action = n.action ? ` action=${n.action}` : ' action=masquerade';
+        const comment = n.comment ? ` comment="${n.comment.replace(/"/g, '')}"` : '';
+        lines.push(`add${chain}${action}${comment}`);
+      }
+      lines.push('');
+
+      lines.push('# ==============================================================================');
+      lines.push('# FIM DO SNAPSHOT - ARQUIVO COMPLETO PARA RESTAURAÇÃO NO TERMINAL WINBOX');
+      lines.push('# ==============================================================================');
+
+      const rscContent = lines.join('\n');
+
+      return {
+        rscContent,
+        summary: {
+          secretsCount: secs.length,
+          profilesCount: profs.length,
+          interfacesCount: ifaces.length,
+          queuesCount: queues.length
+        },
+        model,
+        version
+      };
+    });
+  }
 }
+
 

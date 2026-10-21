@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Server, 
   Cpu, 
@@ -23,10 +23,17 @@ import {
   Globe,
   Shield,
   MapPin,
-  Edit3
+  Edit3,
+  Archive,
+  Download,
+  Eye,
+  FileText,
+  FolderDown,
+  Clock
 } from 'lucide-react';
-import { MikrotikConfig, ActiveSession, Client, Plan, CompanySettings, MikrotikServer } from '../types/index.js';
+import { MikrotikConfig, ActiveSession, Client, Plan, CompanySettings, MikrotikServer, RbBackup, RbBackupConfig } from '../types/index.js';
 import { SystemBackupCard } from './SystemBackupCard.js';
+import { RbBackupsView } from './RbBackupsView.js';
 
 interface MikrotikViewProps {
   config: MikrotikConfig | null;
@@ -53,7 +60,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   onTestConnection,
   onRefresh
 }) => {
-  const [subTab, setSubTab] = useState<'servers' | 'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('servers');
+  const [subTab, setSubTab] = useState<'servers' | 'backups' | 'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('servers');
   const [copiedScript, setCopiedScript] = useState(false);
   const [copiedBancadaScript, setCopiedBancadaScript] = useState(false);
   const [copiedQuickFix, setCopiedQuickFix] = useState(false);
@@ -336,6 +343,18 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
           </button>
 
           <button
+            onClick={() => setSubTab('backups')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+              subTab === 'backups'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>Backups & Snapshots (.rsc)</span>
+          </button>
+
+          <button
             onClick={() => setSubTab('active')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
               subTab === 'active'
@@ -584,6 +603,16 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
                       >
                         <Zap className={`w-3.5 h-3.5 ${importingServerId === srv.id ? 'animate-bounce text-amber-400' : 'text-cyan-400'}`} />
                         <span>{importingServerId === srv.id ? 'Importando...' : 'Puxar Secrets da RB'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSubTab('backups')}
+                        className="px-3 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition"
+                        title="Visualizar e gerar snapshots de backup das configurações (.rsc) desta RB"
+                      >
+                        <Archive className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Backups (.rsc)</span>
                       </button>
                     </div>
 
@@ -888,6 +917,14 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* TAB: RB CONFIGURATION BACKUPS (.rsc SNAPSHOTS) */}
+      {subTab === 'backups' && (
+        <RbBackupsView 
+          servers={effectiveServers} 
+          onRefreshParent={onRefresh} 
+        />
       )}
 
       {/* TAB 1: ACTIVE SESSIONS (/ppp active) */}

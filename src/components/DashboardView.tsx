@@ -199,10 +199,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Card 2: Conexões Ativas MikroTik */}
+        {/* Card 2: Conexões Ativas MikroTik (Clientes Online) */}
         <div 
-          onClick={() => onNavigateTab('mikrotik')}
+          onClick={() => onNavigateTab('active_clients')}
           className="bg-slate-900 border border-slate-800/80 rounded-xl p-5 hover:border-cyan-500/40 cursor-pointer transition shadow-sm group"
+          title="Clique para listar todas as sessões e clientes online no MikroTik"
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Online no MikroTik</span>

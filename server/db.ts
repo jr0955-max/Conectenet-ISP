@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Client, Plan, Tower, Invoice, MikrotikConfig, MikrotikServer, GatewayConfig, AuditLog, SystemStats, User, ServiceOrder, Contract, Equipment, FiscalInvoice, CompanySettings, Carne } from '../src/types/index.js';
+import { Client, Plan, Tower, Invoice, MikrotikConfig, MikrotikServer, GatewayConfig, AuditLog, SystemStats, User, ServiceOrder, Contract, Equipment, FiscalInvoice, CompanySettings, Carne, RbBackup, RbBackupConfig } from '../src/types/index.js';
 import { initialUsers } from './auth.js';
 
 // Planos do Provedor de Internet (Fibra Óptica & Rádio Wireless)
@@ -206,9 +206,19 @@ class DatabaseStore {
   public companySettings: CompanySettings = { ...initialCompanySettings };
   public auditLogs: AuditLog[] = [];
   public carnes: Carne[] = [];
+  public rbBackups: RbBackup[] = [];
+  public rbBackupConfig: RbBackupConfig = {
+    autoBackupEnabled: true,
+    frequencyHours: 24,
+    retentionCount: 15,
+    lastAutoBackup: undefined,
+    nextScheduledBackup: undefined
+  };
   private dbFilePath = path.resolve(process.cwd(), 'data', 'isp_database.json');
+  public rbBackupsDir = path.resolve(process.cwd(), 'data', 'rb_backups');
 
   constructor() {
+    this.ensureDirs();
     this.loadFromFile();
     this.seedInvoices();
     this.seedCarnes();
@@ -217,12 +227,23 @@ class DatabaseStore {
     }
   }
 
-  public save() {
+  private ensureDirs() {
     try {
       const dataDir = path.dirname(this.dbFilePath);
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
+      if (!fs.existsSync(this.rbBackupsDir)) {
+        fs.mkdirSync(this.rbBackupsDir, { recursive: true });
+      }
+    } catch (err) {
+      console.error('Erro ao criar diretórios de dados:', err);
+    }
+  }
+
+  public save() {
+    try {
+      this.ensureDirs();
       const data = {
         users: this.users,
         clients: this.clients,
@@ -238,7 +259,9 @@ class DatabaseStore {
         gatewayConfig: this.gatewayConfig,
         companySettings: this.companySettings,
         auditLogs: this.auditLogs.slice(0, 100),
-        carnes: this.carnes
+        carnes: this.carnes,
+        rbBackups: this.rbBackups,
+        rbBackupConfig: this.rbBackupConfig
       };
       fs.writeFileSync(this.dbFilePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (err) {
@@ -265,7 +288,9 @@ class DatabaseStore {
         if (parsed.companySettings) this.companySettings = { ...this.companySettings, ...parsed.companySettings };
         if (Array.isArray(parsed.auditLogs)) this.auditLogs = parsed.auditLogs;
         if (Array.isArray(parsed.carnes)) this.carnes = parsed.carnes;
-        console.log(`[DB] Banco de dados persistente carregado (${this.clients.length} clientes, ${this.servers.length} servidores, ${this.plans.length} planos).`);
+        if (Array.isArray(parsed.rbBackups)) this.rbBackups = parsed.rbBackups;
+        if (parsed.rbBackupConfig) this.rbBackupConfig = { ...this.rbBackupConfig, ...parsed.rbBackupConfig };
+        console.log(`[DB] Banco de dados persistente carregado (${this.clients.length} clientes, ${this.servers.length} servidores, ${this.plans.length} planos, ${this.rbBackups.length} backups de RBs).`);
       } else {
         this.save();
       }

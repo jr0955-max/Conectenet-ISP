@@ -140,6 +140,36 @@ export interface MikrotikServer {
   lastSync?: string;
 }
 
+export interface RbBackup {
+  id: string;
+  serverId: string;
+  serverName: string;
+  serverHost: string;
+  filename: string;
+  filePath: string;
+  sizeBytes: number;
+  linesCount: number;
+  createdAt: string;
+  triggeredBy: 'automatic' | 'manual';
+  status: 'success' | 'warning' | 'error';
+  routerModel?: string;
+  routerOsVersion?: string;
+  summary?: {
+    secretsCount: number;
+    profilesCount: number;
+    interfacesCount: number;
+    queuesCount: number;
+  };
+}
+
+export interface RbBackupConfig {
+  autoBackupEnabled: boolean;
+  frequencyHours: number; // e.g. 24 (daily) or 12
+  retentionCount: number; // keep last N backups per RB, e.g. 15
+  lastAutoBackup?: string;
+  nextScheduledBackup?: string;
+}
+
 export interface MikrotikConfig {
   host: string;
   port: number;

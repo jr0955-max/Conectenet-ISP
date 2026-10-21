@@ -5,30 +5,30 @@
       "name": "Administrador Master",
       "email": "jr0955@gmail.com",
       "role": "administrador",
-      "passwordHash": "$2b$10$42Mt6l9EFIig1dSngqipjurYGIE8Nu/pwBJD1uO5aCGeCBqSkYW4G",
+      "passwordHash": "$2b$10$XPGcsQaJbYnOdjGz4alHDOZ54dMOnMz6hA33jT4zKS.4Fr4rqCrvm",
       "status": "active",
       "createdAt": "2026-01-01",
-      "lastLogin": "2026-10-20T22:43:54.882Z"
+      "lastLogin": "2026-10-20T23:54:37.278Z"
     },
     {
       "id": "user-tecnico",
       "name": "Lucas Mendes (Técnico de Redes / NOC)",
       "email": "tecnico@provedor.com.br",
       "role": "tecnico",
-      "passwordHash": "$2b$10$2Dh0EnUNckeERP1v21a9xuFQcY96on4DgIR3.gc2my5GoL/Z5Acji",
+      "passwordHash": "$2b$10$zZcccLQjCnFmf/nGNEvLyO8E7K9Ae8iTu9icy7Dl2CwZ3ImI6R/X2",
       "status": "active",
       "createdAt": "2026-02-10",
-      "lastLogin": "2026-10-20T20:43:54.976Z"
+      "lastLogin": "2026-10-20T21:54:37.378Z"
     },
     {
       "id": "user-financeiro",
       "name": "Juliana Rocha (Gestão Financeira & Cobrança)",
       "email": "financeiro@provedor.com.br",
       "role": "financeiro",
-      "passwordHash": "$2b$10$Dsh0qqznxECNqPK9TGn25.H.x8Bx7.cHeBxqIUCc8X/tuijZeCoXC",
+      "passwordHash": "$2b$10$fen.K2xiqHQ7bLM6gC2/HOiZP1DzSMXwN5yOl8ug0raQTvf7Y8KAm",
       "status": "active",
       "createdAt": "2026-03-05",
-      "lastLogin": "2026-10-20T17:43:55.069Z"
+      "lastLogin": "2026-10-20T18:54:37.478Z"
     }
   ],
   "clients": [],
@@ -164,7 +164,7 @@
       "blockProfile": "prof_corte_bloqueado",
       "location": "Sede Central (Porta 01 - WAN: 192.168.1.120)",
       "isDefault": true,
-      "status": "connected",
+      "status": "error",
       "routerModel": "MikroTik RouterBOARD (RB)",
       "routerOsVersion": "RouterOS v7.14",
       "uptime": "12d 04h",
@@ -207,6 +207,51 @@
     "carteira": "17",
     "boletoInstructions": "Sr. Caixa: Não receber após 30 dias de atraso. Cobrar multa de 2% e juros de 1% a.m. após o vencimento."
   },
-  "auditLogs": [],
-  "carnes": []
+  "auditLogs": [
+    {
+      "id": "log-1792540489435-866",
+      "timestamp": "2026-10-20T23:54:49.435Z",
+      "type": "mikrotik",
+      "action": "RB_BACKUP_EXPORT",
+      "message": "Backup de configurações (.rsc) gerado para 1 RB(s) [MANUAL]. Arquivos salvos em /data/rb_backups/.",
+      "status": "success"
+    },
+    {
+      "id": "log-1",
+      "timestamp": "2026-10-20T23:54:37.481Z",
+      "type": "system",
+      "action": "BOOT_SYSTEM",
+      "message": "Servidor AgroISP Pro inicializado. Sistema limpo pronto para conexão no MikroTik de bancada e cadastro de clientes.",
+      "status": "success"
+    }
+  ],
+  "carnes": [],
+  "rbBackups": [
+    {
+      "id": "rsc-1792540489434-188",
+      "serverId": "srv-1",
+      "serverName": "Servidor Sede (RB Principal 192.168.1.120)",
+      "serverHost": "192.168.1.120",
+      "filename": "backup_servidor_sede_rb_principal_192_192_168_1_120_20261020235445.rsc",
+      "filePath": "/app/applet/data/rb_backups/backup_servidor_sede_rb_principal_192_192_168_1_120_20261020235445.rsc",
+      "sizeBytes": 1169,
+      "linesCount": 23,
+      "createdAt": "2026-10-20T23:54:45.432Z",
+      "triggeredBy": "manual",
+      "status": "warning",
+      "routerModel": "MikroTik RouterBOARD (RB)",
+      "routerOsVersion": "RouterOS v7.14",
+      "summary": {
+        "secretsCount": 0,
+        "profilesCount": 6,
+        "interfacesCount": 2,
+        "queuesCount": 0
+      }
+    }
+  ],
+  "rbBackupConfig": {
+    "autoBackupEnabled": true,
+    "frequencyHours": 24,
+    "retentionCount": 15
+  }
 }

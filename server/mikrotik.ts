@@ -1,4 +1,6 @@
-import { Client, Plan, ActiveSession, MikrotikConfig, MikrotikServer } from '../src/types/index.js';
+import fs from 'fs';
+import path from 'path';
+import { Client, Plan, ActiveSession, MikrotikConfig, MikrotikServer, RbBackup, RbBackupConfig } from '../src/types/index.js';
 import { db } from './db.js';
 import { RouterOSClient } from './routeros.js';
 
@@ -1045,6 +1047,264 @@ class MikrotikService {
 /ppp active remove [find name="junior"]
 `
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // ROUTERBOARD CONFIGURATION BACKUPS (.rsc SNAPSHOTS)
+  // ---------------------------------------------------------------------------
+
+  // Create an .rsc configuration snapshot for a specific RB or all RBs
+  public async createRbBackup(targetServerId?: string, triggeredBy: 'automatic' | 'manual' = 'manual'): Promise<{
+    success: boolean;
+    backups: RbBackup[];
+    message: string;
+  }> {
+    const serversToBackup = targetServerId 
+      ? db.servers.filter(s => s.id === targetServerId)
+      : (db.servers.length > 0 ? db.servers : [this.resolveServer()]);
+
+    const createdBackups: RbBackup[] = [];
+    const now = new Date();
+    const timestampStr = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+
+    for (const server of serversToBackup) {
+      const serverSlug = (server.name || 'rb')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '_')
+        .replace(/_+/g, '_')
+        .slice(0, 30);
+      const hostSlug = server.host.replace(/\./g, '_');
+      const filename = `backup_${serverSlug}_${hostSlug}_${timestampStr}.rsc`;
+      const filePath = path.join(db.rbBackupsDir, filename);
+
+      let rscContent = '';
+      let summary = {
+        secretsCount: 0,
+        profilesCount: 0,
+        interfacesCount: 0,
+        queuesCount: 0
+      };
+      let routerModel = server.routerModel || 'MikroTik RouterBOARD';
+      let routerOsVersion = server.routerOsVersion || 'RouterOS v7.x';
+      let status: 'success' | 'warning' | 'error' = 'success';
+
+      try {
+        const ros = this.getClient(server);
+        const exportRes = await ros.exportConfigurationScript(server.name);
+        rscContent = exportRes.rscContent;
+        summary = exportRes.summary;
+        if (exportRes.model) routerModel = exportRes.model;
+        if (exportRes.version) routerOsVersion = exportRes.version;
+      } catch (err: any) {
+        // Fallback: If RB is offline or timeout, generate clean backup from database state
+        status = 'warning';
+        const serverClients = db.clients.filter(c => !c.serverId || c.serverId === server.id);
+        const serverPlans = db.plans;
+
+        const lines: string[] = [
+          '# ==============================================================================',
+          '# MIKROTIK ROUTEROS CONFIGURATION SNAPSHOT (.rsc) - BASE DE DADOS AGROISP',
+          `# Concentrador: ${server.name} (${server.host}:${server.port})`,
+          `# Status: Capturado a partir do cache e registros locais do AgroISP (${err.message})`,
+          `# Data do Snapshot: ${now.toISOString()}`,
+          '# ==============================================================================',
+          '',
+          '/system identity',
+          `set name="${server.name}"`,
+          '',
+          '/ppp profile'
+        ];
+
+        for (const p of serverPlans) {
+          lines.push(`add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`);
+        }
+        lines.push(`add name="${server.blockProfile || 'prof_corte_bloqueado'}" rate-limit="128k/128k" comment="Perfil Corte Inadimplentes"`);
+
+        lines.push('');
+        lines.push('/ppp secret');
+        for (const c of serverClients) {
+          const plan = db.plans.find(p => p.id === c.planId);
+          const prof = c.status === 'blocked' ? server.blockProfile : (plan?.profileName || server.defaultProfile || 'default');
+          const disabled = c.status === 'blocked' ? ' disabled=yes' : ' disabled=no';
+          const ip = c.ipAddress ? ` remote-address=${c.ipAddress}` : '';
+          lines.push(`add name="${c.pppoeUsername}" password="${c.pppoePassword}" profile="${prof}" service=pppoe${ip}${disabled} comment="${c.name}"`);
+        }
+
+        lines.push('');
+        lines.push('/queue simple');
+        for (const c of serverClients) {
+          const plan = db.plans.find(p => p.id === c.planId);
+          if (plan) {
+            lines.push(`add name="<pppoe-${c.pppoeUsername}>" target="<pppoe-${c.pppoeUsername}>" max-limit=${plan.speedUp}M/${plan.speedDown}M comment="${c.name}"`);
+          }
+        }
+
+        lines.push('');
+        lines.push('# Fim do Snapshot');
+        rscContent = lines.join('\n');
+
+        summary = {
+          secretsCount: serverClients.length,
+          profilesCount: serverPlans.length + 1,
+          interfacesCount: 2,
+          queuesCount: serverClients.length
+        };
+      }
+
+      // Write .rsc file to disk in data/rb_backups/
+      fs.writeFileSync(filePath, rscContent, 'utf-8');
+      const stat = fs.statSync(filePath);
+      const linesCount = rscContent.split('\n').length;
+
+      const newBackup: RbBackup = {
+        id: `rsc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        serverId: server.id,
+        serverName: server.name,
+        serverHost: server.host,
+        filename,
+        filePath,
+        sizeBytes: stat.size,
+        linesCount,
+        createdAt: now.toISOString(),
+        triggeredBy,
+        status,
+        routerModel,
+        routerOsVersion,
+        summary
+      };
+
+      // Add to beginning of backups array
+      db.rbBackups.unshift(newBackup);
+      createdBackups.push(newBackup);
+
+      // Prune old backups for this server based on retentionCount
+      const retention = db.rbBackupConfig.retentionCount || 15;
+      const serverBackups = db.rbBackups.filter(b => b.serverId === server.id);
+      if (serverBackups.length > retention) {
+        const toDelete = serverBackups.slice(retention);
+        for (const old of toDelete) {
+          try {
+            if (fs.existsSync(old.filePath)) {
+              fs.unlinkSync(old.filePath);
+            }
+          } catch {}
+          db.rbBackups = db.rbBackups.filter(b => b.id !== old.id);
+        }
+      }
+
+      this.logCommand(
+        `/export file="${filename}"`,
+        `!done (${linesCount} linhas exportadas, ${(stat.size / 1024).toFixed(1)} KB)`,
+        status === 'success',
+        server.name
+      );
+    }
+
+    if (triggeredBy === 'automatic') {
+      db.rbBackupConfig.lastAutoBackup = now.toISOString();
+      const nextTime = new Date(now.getTime() + (db.rbBackupConfig.frequencyHours || 24) * 3600000);
+      db.rbBackupConfig.nextScheduledBackup = nextTime.toISOString();
+    }
+
+    db.addAuditLog({
+      type: 'mikrotik',
+      action: 'RB_BACKUP_EXPORT',
+      message: `Backup de configurações (.rsc) gerado para ${createdBackups.length} RB(s) [${triggeredBy.toUpperCase()}]. Arquivos salvos em /data/rb_backups/.`,
+      status: 'success'
+    });
+
+    db.save();
+
+    return {
+      success: createdBackups.length > 0,
+      backups: createdBackups,
+      message: `${createdBackups.length} snapshot(s) (.rsc) salvos com sucesso na pasta de armazenamento do backend!`
+    };
+  }
+
+  // List all RB backups
+  public getRbBackups(serverId?: string): RbBackup[] {
+    if (serverId && serverId !== 'all') {
+      return db.rbBackups.filter(b => b.serverId === serverId);
+    }
+    return db.rbBackups;
+  }
+
+  // Get raw .rsc file content for viewing / download
+  public getRbBackupContent(backupId: string): { backup: RbBackup; content: string } | null {
+    const backup = db.rbBackups.find(b => b.id === backupId);
+    if (!backup) return null;
+
+    if (fs.existsSync(backup.filePath)) {
+      const content = fs.readFileSync(backup.filePath, 'utf-8');
+      return { backup, content };
+    }
+    return null;
+  }
+
+  // Delete an RB backup file and record
+  public deleteRbBackup(backupId: string): { success: boolean; message: string } {
+    const backupIndex = db.rbBackups.findIndex(b => b.id === backupId);
+    if (backupIndex === -1) {
+      return { success: false, message: 'Backup não encontrado.' };
+    }
+
+    const backup = db.rbBackups[backupIndex];
+    try {
+      if (fs.existsSync(backup.filePath)) {
+        fs.unlinkSync(backup.filePath);
+      }
+    } catch (err: any) {
+      console.error(`Erro ao apagar arquivo ${backup.filePath}:`, err);
+    }
+
+    db.rbBackups.splice(backupIndex, 1);
+    db.save();
+
+    return {
+      success: true,
+      message: `Backup '${backup.filename}' removido com sucesso do armazenamento.`
+    };
+  }
+
+  // Get and update backup config
+  public getRbBackupConfig(): RbBackupConfig {
+    return db.rbBackupConfig;
+  }
+
+  public updateRbBackupConfig(updates: Partial<RbBackupConfig>): RbBackupConfig {
+    db.rbBackupConfig = {
+      ...db.rbBackupConfig,
+      ...updates
+    };
+    if (db.rbBackupConfig.autoBackupEnabled && !db.rbBackupConfig.nextScheduledBackup) {
+      const next = new Date(Date.now() + (db.rbBackupConfig.frequencyHours || 24) * 3600000);
+      db.rbBackupConfig.nextScheduledBackup = next.toISOString();
+    }
+    db.save();
+    return db.rbBackupConfig;
+  }
+
+  // Start automated cron background check
+  public initAutoBackupScheduler() {
+    // Check every 15 minutes
+    setInterval(async () => {
+      try {
+        const config = db.rbBackupConfig;
+        if (!config || !config.autoBackupEnabled) return;
+
+        const now = Date.now();
+        const lastTime = config.lastAutoBackup ? new Date(config.lastAutoBackup).getTime() : 0;
+        const intervalMs = (config.frequencyHours || 24) * 3600000;
+
+        if (now - lastTime >= intervalMs) {
+          console.log('[AgroISP Pro] Executando rotina de backup automático das RBs MikroTik...');
+          await this.createRbBackup(undefined, 'automatic');
+        }
+      } catch (err) {
+        console.error('[AgroISP Pro] Erro no agendador de backup das RBs:', err);
+      }
+    }, 15 * 60 * 1000);
   }
 }
 

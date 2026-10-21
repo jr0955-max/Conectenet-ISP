@@ -847,6 +847,63 @@ app.get('/api/mikrotik/terminal-scripts', (req, res) => {
   res.json(mikrotikService.getTerminalScripts());
 });
 
+// RB Configuration Backups (.rsc snapshots)
+app.get('/api/mikrotik/backups', (req, res) => {
+  const { serverId } = req.query;
+  const backups = mikrotikService.getRbBackups(serverId as string);
+  const config = mikrotikService.getRbBackupConfig();
+  res.json({ backups, config });
+});
+
+app.post('/api/mikrotik/backups', async (req, res) => {
+  try {
+    const { serverId, triggeredBy = 'manual' } = req.body || {};
+    const result = await mikrotikService.createRbBackup(serverId, triggeredBy);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao gerar backup da RB' });
+  }
+});
+
+app.get('/api/mikrotik/backups/config', (req, res) => {
+  res.json({ config: mikrotikService.getRbBackupConfig() });
+});
+
+app.put('/api/mikrotik/backups/config', (req, res) => {
+  try {
+    const updated = mikrotikService.updateRbBackupConfig(req.body);
+    res.json({ success: true, config: updated, message: 'Configuração de backup automático atualizada!' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao atualizar configuração' });
+  }
+});
+
+app.get('/api/mikrotik/backups/:id/content', (req, res) => {
+  const data = mikrotikService.getRbBackupContent(req.params.id);
+  if (!data) {
+    return res.status(404).json({ error: 'Arquivo de backup não encontrado no armazenamento.' });
+  }
+  res.json(data);
+});
+
+app.get('/api/mikrotik/backups/:id/download', (req, res) => {
+  const data = mikrotikService.getRbBackupContent(req.params.id);
+  if (!data) {
+    return res.status(404).send('Arquivo de backup não encontrado.');
+  }
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${data.backup.filename}"`);
+  res.send(data.content);
+});
+
+app.delete('/api/mikrotik/backups/:id', (req, res) => {
+  const result = mikrotikService.deleteRbBackup(req.params.id);
+  if (!result.success) {
+    return res.status(404).json(result);
+  }
+  res.json(result);
+});
+
 // -----------------------------------------------------------------------------
 // 4. INVOICES, PIX & BOLETOS
 // -----------------------------------------------------------------------------
@@ -1726,6 +1783,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[AgroISP Pro] Server running on http://0.0.0.0:${PORT}`);
+    mikrotikService.initAutoBackupScheduler();
   });
 }
 
