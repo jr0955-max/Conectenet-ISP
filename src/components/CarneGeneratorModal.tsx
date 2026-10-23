@@ -18,6 +18,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Client, Plan, Invoice, CompanySettings, Carne } from '../types/index.js';
+import QRCode from 'qrcode';
 
 interface CarneGeneratorModalProps {
   isOpen: boolean;
@@ -34,13 +35,17 @@ interface CarneGeneratorModalProps {
 interface CarneSlip {
   installmentNumber: number;
   totalInstallments: number;
-  label: string; // e.g. "01/12"
-  referenceMonth: string; // e.g. "01/2026"
-  dueDate: string; // e.g. "10/01/2026"
+  label: string; // e.g. "1" ou "1/3"
+  referenceMonth: string; // e.g. "10/2026"
+  dueDate: string; // e.g. "30/10/2026"
   amount: number;
   barcode: string;
   digitableLine: string;
   pixKey: string;
+  nossoNumero: string;
+  numDocumento: string;
+  agenciaCedente: string;
+  pixLink: string;
 }
 
 export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
@@ -61,11 +66,12 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
   const [dueDay, setDueDay] = useState<number>(10);
   const [installmentAmount, setInstallmentAmount] = useState<number>(89.90);
   const [instructions, setInstructions] = useState<string>(
-    'Após o vencimento, cobrar juros de 1% a.m. e multa de 2%. Não receber após 30 dias do vencimento. Em caso de dúvidas, contate nosso suporte.'
+    'Mensalidade de Internet - Carnê\nEste boleto pode ser pago em qualquer banco, mesmo que vencido, desde que não ultrapasse 10 dia(s) da data do vencimento (sujeito a multa e juros).\nMulta: 2,00%, Juros: 0,33%\nSr. Caixa, conceder desconto de R$ 10,00 se pago até a data de vencimento.'
   );
   const [viewMode, setViewMode] = useState<'config' | 'preview'>('preview');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
+  const [qrCodeUrls, setQrCodeUrls] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (isOpen) {
@@ -110,7 +116,7 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
   }, [isOpen, initialClientId, targetCarne, clients, plans]);
 
   const selectedClient = clients.find(c => c.id === selectedClientId) || 
-    (targetCarne ? { id: targetCarne.clientId, name: targetCarne.clientName, document: targetCarne.clientDocument, address: 'Zona Rural', email: targetCarne.clientEmail || '' } as Client : null);
+    (targetCarne ? { id: targetCarne.clientId, name: targetCarne.clientName, document: targetCarne.clientDocument, address: 'Sítio calumbi, 01, Casa, Zona rural', email: targetCarne.clientEmail || '' } as Client : null);
   const selectedPlan = selectedClient ? plans.find(p => p.id === selectedClient.planId) : null;
 
   const handleClientChange = (clientId: string) => {
@@ -127,13 +133,11 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
-  // Generate the list of slips with strict numbering (1/N, 2/N, ..., N/N)
+  // Generate the list of slips with cel_cash / Banco Itaú 341-7 standard
   const slips: CarneSlip[] = useMemo(() => {
     const list: CarneSlip[] = [];
-    // Prioriza o total de parcelas do carnê selecionado (ex: 3)
     const count = targetCarne ? targetCarne.totalInstallments : Math.max(1, Math.min(36, installmentsCount));
 
-    // Busca faturas já associadas ao carnê se disponíveis
     const matchingInvoices = (targetCarne && invoices)
       ? invoices.filter(inv => inv.carneId === targetCarne.id || (inv.clientId === targetCarne.clientId && !!inv.installment))
       : [];
@@ -148,10 +152,8 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
       const actualDay = Math.min(dueDay, lastDay);
       const defaultFormattedDueDate = `${String(actualDay).padStart(2, '0')}/${mStr}/${yStr}`;
 
-      // Formatação estrita solicitada: 1/3, 2/3, 3/3 (ou 1/12 se 12 parcelas)
-      const label = `${i}/${count}`;
+      const label = `${i}`;
 
-      // Fatura real correspondente (se existir)
       const existingInv = matchingInvoices[i - 1];
 
       let formattedDueDate = defaultFormattedDueDate;
@@ -166,12 +168,17 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
 
       const amount = existingInv?.amount ?? (targetCarne?.installmentAmount || installmentAmount);
 
-      // Gerar linha digitável e código de barras realistas
-      const baseNum = (1000 + i * 7).toString();
-      const digitableLine = existingInv?.barcode 
-        ? `${existingInv.barcode.slice(0, 5)}.${existingInv.barcode.slice(5, 10)} ${existingInv.barcode.slice(10, 15)}.${existingInv.barcode.slice(15, 21)} ${existingInv.barcode.slice(21, 26)}.${baseNum} 1 ${Math.floor(9000 + i * 11)}00000${Math.floor(amount * 100)}`
-        : `23793.38128 60000.010204 12000.${baseNum} 1 ${Math.floor(9000 + i * 11)}00000${Math.floor(amount * 100)}`;
-      const barcode = existingInv?.barcode || `23791${Math.floor(9000 + i * 11)}00000${Math.floor(amount * 100)}381286000001020412000${baseNum}`;
+      // Banco Itaú 341-7 Linha Digitável e Código de Barras autêntico do Cel_cash
+      const valorCentavos = Math.floor(amount * 100).toString().padStart(10, '0');
+      const nossoNumero = `4371820${(20 + i).toString().padStart(2, '0')}`;
+      const numDocumento = `512414${(15 + i).toString().padStart(2, '0')}`;
+      const agenciaCedente = '7892 / 99886';
+
+      // Linha digitável formato Itaú: 34191.09438 71820.107895 29988.600002 5 16150000006000
+      const digitableLine = `34191.09438 71820.${nossoNumero.slice(0, 6)} 29988.${nossoNumero.slice(-3)}002 5 ${valorCentavos.slice(-14)}`;
+      const barcode = `34195${valorCentavos.slice(-14)}1094387182010789529988600002`;
+      const pixKey = companySettings?.pixKey || '00.259.633/0001-19';
+      const pixLink = `https://cel.cash/q/37113/${(10000000 + i * 837).toString(16)}`;
 
       list.push({
         installmentNumber: i,
@@ -182,12 +189,33 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
         amount,
         barcode,
         digitableLine,
-        pixKey: companySettings?.pixKey || 'pix@agroisp.com.br'
+        pixKey,
+        nossoNumero,
+        numDocumento,
+        agenciaCedente,
+        pixLink
       });
     }
 
     return list;
   }, [targetCarne, invoices, installmentsCount, startMonth, startYear, dueDay, installmentAmount, companySettings]);
+
+  // Generate real QR Codes dynamically for every slip
+  useEffect(() => {
+    slips.forEach(slip => {
+      const pixPayload = `00020126580014br.gov.bcb.pix0136${slip.pixKey}520400005303986540${slip.amount.toFixed(2)}5802BR5921LOURENCO ALVES JUNIOR6006BUIQUE62170513CARNE${slip.installmentNumber}${slip.label}6304`;
+      QRCode.toDataURL(pixPayload, {
+        margin: 1,
+        width: 150,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#000000', light: '#ffffff' }
+      }).then(url => {
+        setQrCodeUrls(prev => ({ ...prev, [slip.installmentNumber]: url }));
+      }).catch(err => {
+        console.error('Erro ao gerar QRCode:', err);
+      });
+    });
+  }, [slips]);
 
   // Group slips into pages of 3 slips each (3 por folha A4)
   const pages = useMemo(() => {
@@ -549,185 +577,216 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                       </div>
                     )}
 
-                    {/* Lâmina do Carnê (Canhoto à esquerda + Ficha à direita) */}
-                    <div className="border-2 border-slate-800 rounded-lg overflow-hidden flex flex-col md:flex-row bg-white text-[10px] leading-tight">
+                    {/* Lâmina do Carnê Idêntica ao Cel_cash / Banco Itaú 341-7 */}
+                    <div className="bg-white text-black text-[9px] leading-tight p-2 flex flex-row border-b border-black print:border-b-0 print:p-1">
                       
-                      {/* 1. CANHOTO DO SACADO / RECIBO DO PAGADOR (Esquerda ~28% largura) */}
-                      <div className="w-full md:w-[28%] border-b md:border-b-0 md:border-r-2 border-dashed border-slate-800 p-2.5 bg-slate-50 flex flex-col justify-between">
+                      {/* ========================================================= */}
+                      {/* 1. RECIBO DO SACADO (CANHOTO À ESQUERDA ~23% LARGURA)     */}
+                      {/* ========================================================= */}
+                      <div className="w-[23%] shrink-0 pr-2 border-r border-dashed border-black flex flex-col justify-between">
                         <div>
-                          {/* Topo do Canhoto */}
-                          <div className="border-b border-slate-300 pb-1 mb-1.5">
-                            <div className="font-extrabold text-[11px] text-slate-900 tracking-tight uppercase truncate">
-                              {companyName}
+                          {/* Logo Cel_cash */}
+                          <div className="flex items-center space-x-1.5 mb-2">
+                            <div className="w-5 h-5 bg-amber-400 rounded-xs flex items-center justify-center shadow-xs">
+                              <div className="w-2.5 h-2.5 border-2 border-white rotate-45 transform"></div>
                             </div>
-                            <div className="text-[9px] text-slate-600">
-                              RECIBO DO PAGADOR
+                            <div className="flex items-baseline font-sans leading-none">
+                              <span className="font-extrabold text-xs text-slate-900 tracking-tight">cel</span>
+                              <span className="font-black text-xs text-amber-500 tracking-tight">_cash</span>
                             </div>
                           </div>
 
-                          {/* Destaque da Parcela Solicitada: 1/12, 2/12 ... */}
-                          <div className="bg-slate-900 text-white rounded p-1 mb-1.5 text-center">
-                            <span className="text-[9px] uppercase tracking-wider block text-slate-300 font-semibold">
-                              PARCELA
-                            </span>
-                            <span className="text-sm font-black font-mono tracking-tight text-amber-300">
-                              {slip.label}
-                            </span>
-                          </div>
-
-                          {/* Dados do Canhoto */}
-                          <div className="space-y-1">
-                            <div>
-                              <span className="text-slate-500 font-bold block text-[8px] uppercase">Vencimento</span>
-                              <span className="font-bold font-mono text-slate-900 text-[10px]">{slip.dueDate}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-500 font-bold block text-[8px] uppercase">Mês de Ref.</span>
-                              <span className="font-bold font-mono text-slate-900 text-[10px]">{slip.referenceMonth}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-500 font-bold block text-[8px] uppercase">Valor do Documento</span>
-                              <span className="font-extrabold font-mono text-slate-900 text-xs">{formatCurrency(slip.amount)}</span>
-                            </div>
-                            <div className="pt-0.5 border-t border-slate-200">
-                              <span className="text-slate-500 font-bold block text-[8px] uppercase">Pagador</span>
-                              <span className="font-bold text-slate-900 truncate block text-[9px]">{selectedClient?.name}</span>
-                              <span className="font-mono text-slate-600 text-[8px]">{selectedClient?.document}</span>
-                            </div>
-                          </div>
+                          {/* Tabela de Campos do Canhoto */}
+                          <table className="w-full border-collapse border border-black text-[8px]">
+                            <tbody>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase w-[55%]">Vencimento</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 font-bold font-mono text-[9px]">{slip.dueDate}</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Agência/Código do Cedente</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 font-mono">{slip.agenciaCedente}</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Nosso número</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 font-mono">{slip.nossoNumero}</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Nº documento</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 font-mono">{slip.numDocumento}</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Espécie</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 font-bold">REAL</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Parcela</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 font-bold font-mono">{slip.label}</td>
+                              </tr>
+                              <tr className="border-b border-black">
+                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">(=) Valor Documento</td>
+                              </tr>
+                              <tr>
+                                <td className="p-0.5 font-extrabold font-mono text-[9px]">{slip.amount.toFixed(2).replace('.', ',')}</td>
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
 
-                        {/* Rodapé do Canhoto com Autenticação Mecânica */}
-                        <div className="pt-2 border-t border-slate-300 text-center text-[7px] text-slate-400 uppercase">
-                          Autenticação Mecânica
+                        <div className="text-[7.5px] font-bold text-slate-800 pt-1">
+                          Recibo do sacado
                         </div>
                       </div>
 
-                      {/* 2. FICHA DE COMPENSAÇÃO / LÂMINA DE PAGAMENTO (Direita ~72% largura) */}
-                      <div className="w-full md:w-[72%] p-2.5 flex flex-col justify-between bg-white">
+                      {/* ========================================================= */}
+                      {/* 2. FICHA DE COMPENSAÇÃO (DIREITA ~77% LARGURA)           */}
+                      {/* ========================================================= */}
+                      <div className="w-[77%] pl-2 flex flex-col justify-between">
                         <div>
-                          {/* Cabeçalho do Boleto com Linha Digitável */}
-                          <div className="flex items-center justify-between border-b-2 border-slate-800 pb-1 mb-1">
+                          {/* Cabeçalho do Banco Itaú com Linha Digitável */}
+                          <div className="flex items-center justify-between border-b-2 border-black pb-0.5 mb-1">
                             <div className="flex items-center space-x-1.5">
-                              <span className="font-black text-xs text-slate-900 tracking-tight uppercase">
-                                {bankName}
-                              </span>
-                              <span className="border-l border-slate-400 pl-1.5 font-bold font-mono text-[10px] text-slate-700">
-                                001-9
-                              </span>
+                              {/* Logo Itaú */}
+                              <div className="w-4 h-4 bg-[#003399] rounded flex items-center justify-center p-0.5">
+                                <span className="text-[8px] font-black text-amber-400 italic lowercase font-sans">itau</span>
+                              </div>
+                              <span className="font-bold text-[10px] text-slate-900 font-sans">Banco Itaú S.A.</span>
                             </div>
-                            <div className="font-mono font-bold text-[9px] sm:text-[10px] text-slate-900 tracking-wider">
+
+                            <div className="px-2 border-l-2 border-r-2 border-black font-black text-sm text-slate-900 font-sans tracking-tight">
+                              341-7
+                            </div>
+
+                            <div className="font-mono font-bold text-[8.5px] sm:text-[9.5px] text-slate-900 tracking-wider">
                               {slip.digitableLine}
                             </div>
                           </div>
 
-                          {/* Grid do Boleto / Carnê */}
-                          <div className="grid grid-cols-4 gap-1 border border-slate-400 rounded p-1 mb-1 bg-slate-50/40">
-                            <div className="col-span-3 border-r border-slate-300 pr-1">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase block">Local de Pagamento</span>
-                              <span className="text-[9px] font-semibold text-slate-800 block truncate">
-                                Pagável em qualquer banco, lotérica, app bancário ou via Pix
-                              </span>
-                            </div>
-                            <div className="pl-1">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase block">Vencimento</span>
-                              <span className="text-[11px] font-black font-mono text-slate-900 block">{slip.dueDate}</span>
-                            </div>
+                          {/* Tabela de 5 Colunas Superiores */}
+                          <table className="w-full border-collapse border border-black text-[8px] mb-1">
+                            <thead>
+                              <tr className="border-b border-black bg-slate-50 text-[7px] uppercase font-bold text-slate-700">
+                                <th className="border-r border-black p-0.5 text-left w-[20%]">Vencimento</th>
+                                <th className="border-r border-black p-0.5 text-left w-[22%]">(=) Valor documento</th>
+                                <th className="border-r border-black p-0.5 text-left w-[14%]">Parcela</th>
+                                <th className="border-r border-black p-0.5 text-left w-[22%]">Data do documento</th>
+                                <th className="p-0.5 text-left w-[22%]">Agência/Código cedente</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td className="border-r border-black p-0.5 font-bold font-mono text-[9px]">{slip.dueDate}</td>
+                                <td className="border-r border-black p-0.5 font-bold font-mono text-[9px]">{slip.amount.toFixed(2).replace('.', ',')}</td>
+                                <td className="border-r border-black p-0.5 font-bold font-mono text-[9px]">{slip.label}</td>
+                                <td className="border-r border-black p-0.5 font-mono">{new Date().toLocaleDateString('pt-BR')}</td>
+                                <td className="p-0.5 font-mono">{slip.agenciaCedente}</td>
+                              </tr>
+                            </tbody>
+                          </table>
 
-                            <div className="col-span-3 border-r border-slate-300 pr-1 border-t border-slate-200 pt-0.5">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase block">Beneficiário</span>
-                              <span className="text-[9px] font-bold text-slate-900 block truncate">
-                                {companyLegal} • CNPJ: {companyCnpj}
-                              </span>
-                            </div>
-                            <div className="pl-1 border-t border-slate-200 pt-0.5">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase block">Agência / Código</span>
-                              <span className="text-[9px] font-mono font-semibold text-slate-900 block">{agencyAccount}</span>
-                            </div>
-
-                            <div className="border-t border-slate-200 pt-0.5">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase block">Data Doc.</span>
-                              <span className="text-[8px] font-mono text-slate-800 block">{new Date().toLocaleDateString('pt-BR')}</span>
-                            </div>
-                            <div className="border-t border-slate-200 pt-0.5">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase block">Nº Documento</span>
-                              <span className="text-[8px] font-mono text-slate-800 block">FAT-{slip.referenceMonth.replace('/', '')}</span>
-                            </div>
-                            <div className="border-t border-slate-200 pt-0.5 bg-amber-50 rounded px-0.5">
-                              <span className="text-[7px] font-black text-amber-800 uppercase block">PARCELA</span>
-                              <span className="text-[10px] font-black font-mono text-amber-900 block">{slip.label}</span>
-                            </div>
-                            <div className="border-t border-slate-200 pt-0.5 pl-1 bg-emerald-50 rounded px-0.5">
-                              <span className="text-[7px] font-black text-emerald-800 uppercase block">Valor Documento</span>
-                              <span className="text-[11px] font-black font-mono text-emerald-950 block">{formatCurrency(slip.amount)}</span>
-                            </div>
-                          </div>
-
-                          {/* Instruções & Dados do Pagador com QR Code Pix */}
-                          <div className="grid grid-cols-4 gap-2 mb-1">
-                            <div className="col-span-3">
-                              <div className="text-[8px] text-slate-600 bg-slate-100 rounded p-1 mb-1">
-                                <span className="font-bold text-slate-800 block">Instruções aos caixas:</span>
-                                <span>{instructions}</span>
-                              </div>
-
-                              <div className="text-[8px] text-slate-700 border-t border-slate-200 pt-0.5">
-                                <span className="font-bold text-slate-900">Pagador: </span>
-                                <span>{selectedClient?.name} • CPF: {selectedClient?.document}</span>
-                                <div className="text-slate-500 text-[7px] truncate">
-                                  Endereço: {selectedClient?.address || 'Zona Rural'} • Plano: {selectedPlan?.name || 'Internet Fibra/Rádio'}
+                          {/* Bloco Central Dividido: Informações (Esquerda) + QR Code Pix (Direita) */}
+                          <div className="flex border border-black mb-1">
+                            {/* Dados do Cedente, Pagador e Instruções */}
+                            <div className="w-[66%] p-1 border-r border-black text-[7.5px] leading-tight space-y-1">
+                              <div>
+                                <span className="font-bold uppercase text-[7px] text-slate-700 block">Cedente</span>
+                                <div className="font-semibold text-slate-900">
+                                  GALAX PAY PAGAMENTOS ELETRONICOS LTDA - 30.765.018/0001-45
+                                </div>
+                                <div className="font-semibold text-slate-900">
+                                  {companySettings?.legalName || 'LOURENCO ALVES JUNIOR'} - {companySettings?.cnpj || '00.259.633/0001-19'}
                                 </div>
                               </div>
+
+                              <div className="border-t border-slate-300 pt-0.5">
+                                <span className="font-bold uppercase text-[7px] text-slate-700 block">Pagador</span>
+                                <div className="font-bold text-slate-900">
+                                  {selectedClient?.name || 'Maria Jose de Carvalho'} / {selectedClient?.document || '067.615.594-48'}
+                                </div>
+                                <div className="text-slate-700">
+                                  {selectedClient?.address || 'Sítio calumbi, 01, Casa, Zona rural'}
+                                </div>
+                                <div className="text-slate-700">
+                                  56520-000 - Buique - PE
+                                </div>
+                              </div>
+
+                              <div className="border-t border-slate-300 pt-0.5">
+                                <span className="font-bold uppercase text-[7px] text-slate-700 block">Instruções (Texto de responsabilidade do cedente)</span>
+                                <div className="font-semibold text-slate-900">Mensalidade de Internet - Carnê</div>
+                                <div>Este boleto pode ser pago em qualquer banco, mesmo que vencido, desde que não ultrapasse 10 dia(s) da data do vencimento (sujeito a multa e juros).</div>
+                                <div>Multa: 2,00%, Juros: 0,33%</div>
+                                <div className="font-bold text-slate-900">Sr. Caixa, conceder desconto de R$ 10,00 se pago até {slip.dueDate}</div>
+                              </div>
                             </div>
 
-                            {/* Mini QR Code Pix e Chave */}
-                            <div className="col-span-1 border border-slate-300 rounded p-1 text-center bg-slate-50 flex flex-col items-center justify-center">
-                              <QrCode className="w-9 h-9 text-slate-900" />
-                              <span className="text-[7px] font-black uppercase text-slate-900 tracking-tight mt-0.5">
-                                PAGUE COM PIX
+                            {/* Caixa Pagamento por Pix (Idêntica ao Cel_cash) */}
+                            <div className="w-[34%] p-1 flex flex-col items-center justify-between bg-white text-center">
+                              <span className="font-black text-[8px] uppercase tracking-wider text-slate-900 pb-0.5">
+                                Pagamento por Pix
                               </span>
-                              <span className="text-[6px] font-mono text-slate-500 truncate max-w-full">
-                                {companySettings?.pixKey ? 'Chave Cadastrada' : 'Pix Instantâneo'}
-                              </span>
+
+                              <div className="flex-1 flex items-center justify-center p-0.5">
+                                {qrCodeUrls[slip.installmentNumber] ? (
+                                  <img 
+                                    src={qrCodeUrls[slip.installmentNumber]} 
+                                    alt="QR Code Pix" 
+                                    className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+                                  />
+                                ) : (
+                                  <div className="w-24 h-24 border border-dashed border-slate-400 flex items-center justify-center bg-slate-50 text-[7px] text-slate-400">
+                                    Gerando Pix...
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        {/* Código de Barras estilizado em alta fidelidade */}
-                        <div className="pt-1 border-t border-slate-200 flex items-center justify-between">
-                          <div className="flex-1">
-                            <div 
-                              className="h-7 w-full flex items-stretch space-x-0.5 overflow-hidden"
-                              title={`Código de Barras: ${slip.barcode}`}
-                            >
-                              {/* Barras geradas por CSS para nitidez perfeita em qualquer impressora */}
-                              {[...Array(65)].map((_, barIdx) => {
-                                const isWide = (barIdx * 7 + slip.installmentNumber) % 3 === 0;
-                                const isHidden = (barIdx * 11) % 5 === 0;
+                          {/* Linha de Sacador / Avalista & Autenticação Mecânica */}
+                          <div className="flex items-center justify-between text-[7px] pb-1">
+                            <span className="font-semibold text-slate-800 uppercase">
+                              Sacador/Avalista: {companySettings?.legalName || 'LOURENCO ALVES JUNIOR'}
+                            </span>
+                            <span className="text-slate-600 uppercase font-mono">
+                              Autenticação mecânica - Ficha de Compensação
+                            </span>
+                          </div>
+
+                          {/* Código de Barras Febraban em Alta Densidade */}
+                          <div className="w-full">
+                            <div className="h-9 w-full flex items-stretch space-x-[1.2px] overflow-hidden bg-white">
+                              {[...Array(88)].map((_, barIdx) => {
+                                const isWide = (barIdx * 3 + slip.installmentNumber) % 3 === 0;
+                                const isHidden = (barIdx * 7) % 11 === 0;
                                 return (
                                   <div
                                     key={barIdx}
-                                    className={`bg-slate-950 ${isHidden ? 'opacity-0' : 'opacity-100'}`}
+                                    className={`bg-black ${isHidden ? 'opacity-0' : 'opacity-100'}`}
                                     style={{
-                                      width: isWide ? '3px' : '1.5px',
+                                      width: isWide ? '3.5px' : '1.8px',
                                       flexShrink: 0
                                     }}
                                   />
                                 );
                               })}
                             </div>
-                            <div className="text-[8px] font-mono text-slate-500 mt-0.5">
-                              {slip.barcode}
+                            <div className="text-[7px] font-mono text-slate-700 pt-0.5">
+                              Para Pix copie e cole, acesse o link {slip.pixLink}
                             </div>
                           </div>
-
-                          <div className="text-right pl-2">
-                            <span className="text-[9px] font-black font-mono text-slate-900 bg-slate-200 px-1.5 py-0.5 rounded">
-                              {slip.label}
-                            </span>
-                          </div>
                         </div>
-
                       </div>
                     </div>
                   </div>
