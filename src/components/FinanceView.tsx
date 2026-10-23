@@ -204,7 +204,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Subnavigation Tabs Bar (Faturas | Cobranças | Carnês) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs print:hidden">
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setSubTab('invoices')}
@@ -284,7 +284,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* ABA 1: FATURAS & RECEBIMENTOS (VISÃO GERAL) */}
       {/* ========================================================================= */}
       {subTab === 'invoices' && (
-        <div className="space-y-6">
+        <div className="space-y-6 print:hidden">
           {/* Financial KPI Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Recebido */}
@@ -567,7 +567,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* ABA 2: COBRANÇAS (MÊS EM ATRASO / AVULSAS) */}
       {/* ========================================================================= */}
       {subTab === 'charges' && (
-        <div className="space-y-6">
+        <div className="space-y-6 print:hidden">
           {/* Banner Explicativo de Cobrança de Atraso */}
           <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/30 rounded-xl p-5 shadow-xs space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -794,7 +794,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* ABA 3: CARNÊS (CONFORME A IMAGEM DO USUÁRIO) */}
       {/* ========================================================================= */}
       {subTab === 'carnes' && (
-        <div className="space-y-4">
+        <div className="space-y-4 print:hidden">
           
           {/* 1. TOP CARDS CONFORME A IMAGEM (TODOS | EM DIA | EM ATRASO | CLIENTES SEM...) */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
