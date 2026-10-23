@@ -364,35 +364,46 @@ app.post('/api/clients', async (req, res) => {
     };
 
     db.clients.unshift(newClient);
+    db.save(); // Save immediately to disk so client is NEVER lost!
 
-    // Automatically create /ppp secret in MikroTik RouterOS
-    const mikrotikResult = await mikrotikService.syncSecret(newClient);
+    // Automatically create /ppp secret in MikroTik RouterOS (with try/catch safeguard)
+    let mikrotikResult: any = { success: false, message: 'Não sincronizado com RB' };
+    try {
+      mikrotikResult = await mikrotikService.syncSecret(newClient);
+    } catch (err: any) {
+      console.warn('Erro ao sincronizar secret com MikroTik:', err.message);
+    }
 
     // Auto-generate current month initial invoice for the new client
-    const plan = db.plans.find(p => p.id === newClient.planId) || db.plans[0];
-    const now = new Date();
-    const invoiceId = `FAT-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-${String(db.invoices.length + 1).padStart(4, '0')}`;
-    const { pixCopyPaste, qrCodeDataUrl } = await paymentGatewayService.generatePixPayload(invoiceId, plan.price, newClient.name);
-    const barcode = paymentGatewayService.generateBarcode(plan.price);
+    let initialInvoice: Invoice | null = null;
+    try {
+      const plan = db.plans.find(p => p.id === newClient.planId) || db.plans[0];
+      const now = new Date();
+      const invoiceId = `FAT-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-${String(db.invoices.length + 1).padStart(4, '0')}`;
+      const { pixCopyPaste, qrCodeDataUrl } = await paymentGatewayService.generatePixPayload(invoiceId, plan.price, newClient.name);
+      const barcode = paymentGatewayService.generateBarcode(plan.price);
 
-    const initialInvoice: Invoice = {
-      id: invoiceId,
-      clientId: newClient.id,
-      clientName: newClient.name,
-      clientDocument: newClient.document,
-      clientPhone: newClient.phone,
-      planName: plan.name,
-      amount: plan.price,
-      dueDate: new Date(now.getFullYear(), now.getMonth(), newClient.dueDay).toISOString().split('T')[0],
-      status: 'pendente',
-      barcode,
-      pixCopyPaste,
-      qrCodeDataUrl,
-      gateway: db.gatewayConfig.provider,
-      referenceMonth: `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
-      createdAt: new Date().toISOString()
-    };
-    db.invoices.unshift(initialInvoice);
+      initialInvoice = {
+        id: invoiceId,
+        clientId: newClient.id,
+        clientName: newClient.name,
+        clientDocument: newClient.document,
+        clientPhone: newClient.phone,
+        planName: plan.name,
+        amount: plan.price,
+        dueDate: new Date(now.getFullYear(), now.getMonth(), newClient.dueDay).toISOString().split('T')[0],
+        status: 'pendente',
+        barcode,
+        pixCopyPaste,
+        qrCodeDataUrl,
+        gateway: db.gatewayConfig.provider,
+        referenceMonth: `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
+        createdAt: new Date().toISOString()
+      };
+      db.invoices.unshift(initialInvoice);
+    } catch (err: any) {
+      console.warn('Erro ao gerar fatura inicial do cliente:', err.message);
+    }
 
     db.addAuditLog({
       type: 'client',
@@ -1056,6 +1067,7 @@ app.post('/api/invoices/carne-batch', async (req, res) => {
 
     // Insert all into db.invoices
     createdInvoices.forEach(inv => db.invoices.unshift(inv));
+    db.save();
 
     db.addAuditLog({
       type: 'payment',
@@ -1168,9 +1180,10 @@ app.post('/api/carnes', async (req, res) => {
       createdInvoices.push(inv);
     }
 
-    // Add invoices to db
+    // Add invoices and carne to db and save to persistent storage
     createdInvoices.forEach(inv => db.invoices.unshift(inv));
     db.carnes.unshift(newCarne);
+    db.save();
 
     db.addAuditLog({
       type: 'payment',
@@ -1199,6 +1212,7 @@ app.delete('/api/carnes/:id', (req, res) => {
     const [deleted] = db.carnes.splice(index, 1);
     // Also remove associated invoices
     db.invoices = db.invoices.filter(inv => inv.carneId !== id);
+    db.save();
 
     db.addAuditLog({
       type: 'payment',
@@ -1669,27 +1683,37 @@ app.put('/api/company-settings', (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 9. SYSTEM BACKUP & EXPORT (MikroTik, Dados da Empresa, Gateway & Planos)
+// 9. SYSTEM BACKUP & EXPORT (Full System State: Clientes, Carnês, RBs, Planos, etc.)
 // -----------------------------------------------------------------------------
 app.get('/api/backup', (req, res) => {
   try {
     const backupData = {
-      system: 'ISP Telecom Management',
-      version: '3.0.0',
+      system: 'AgroISP Pro Management System',
+      version: '3.5.0',
       exportedAt: new Date().toISOString(),
       companySettings: db.companySettings,
       mikrotikConfig: db.mikrotikConfig,
       gatewayConfig: db.gatewayConfig,
+      servers: db.servers,
+      clients: db.clients,
+      invoices: db.invoices,
+      carnes: db.carnes,
       plans: db.plans,
       towers: db.towers,
+      contracts: db.contracts,
+      serviceOrders: db.serviceOrders,
+      equipments: db.equipments,
+      fiscalInvoices: db.fiscalInvoices,
       summary: {
         companyName: db.companySettings.name,
         cnpj: db.companySettings.cnpj,
         mikrotikHost: db.mikrotikConfig.host,
+        totalClients: db.clients.length,
+        totalCarnes: db.carnes.length,
+        totalInvoices: db.invoices.length,
+        totalServers: db.servers.length,
         totalPlans: db.plans.length,
         totalTowers: db.towers.length,
-        totalClients: db.clients.length,
-        totalInvoices: db.invoices.length,
         totalServiceOrders: db.serviceOrders.length
       }
     };
@@ -1697,7 +1721,7 @@ app.get('/api/backup', (req, res) => {
     db.addAuditLog({
       type: 'system',
       action: 'SYSTEM_BACKUP_EXPORT',
-      message: `Exportação de backup realizada com sucesso para [${db.companySettings.name}].`,
+      message: `Exportação de backup completo realizada com sucesso (${db.clients.length} clientes, ${db.carnes.length} carnês, ${db.servers.length} RBs).`,
       status: 'success'
     });
 
@@ -1714,6 +1738,7 @@ app.post('/api/backup/restore', (req, res) => {
       return res.status(400).json({ error: 'Arquivo de backup inválido.' });
     }
 
+    // 1. Restore Company Settings
     if (backup.companySettings) {
       db.companySettings = { ...db.companySettings, ...backup.companySettings };
       if (backup.companySettings.legalName || backup.companySettings.name) {
@@ -1724,37 +1749,82 @@ app.post('/api/backup/restore', (req, res) => {
       }
     }
 
+    // 2. Restore MikroTik Config & Servers
     if (backup.mikrotikConfig) {
       db.mikrotikConfig = { ...db.mikrotikConfig, ...backup.mikrotikConfig };
     }
+    if (backup.servers && Array.isArray(backup.servers) && backup.servers.length > 0) {
+      db.servers = backup.servers;
+    }
 
+    // 3. Restore Gateway Config
     if (backup.gatewayConfig) {
       db.gatewayConfig = { ...db.gatewayConfig, ...backup.gatewayConfig };
     }
 
-    if (backup.plans && Array.isArray(backup.plans)) {
+    // 4. Restore Plans & Towers
+    if (backup.plans && Array.isArray(backup.plans) && backup.plans.length > 0) {
       db.plans = backup.plans;
     }
-
-    if (backup.towers && Array.isArray(backup.towers)) {
+    if (backup.towers && Array.isArray(backup.towers) && backup.towers.length > 0) {
       db.towers = backup.towers;
     }
+
+    // 5. Restore Clients (CRITICAL)
+    let restoredClientsCount = 0;
+    if (backup.clients && Array.isArray(backup.clients)) {
+      db.clients = backup.clients;
+      restoredClientsCount = backup.clients.length;
+    }
+
+    // 6. Restore Carnes & Invoices (CRITICAL)
+    let restoredCarnesCount = 0;
+    if (backup.carnes && Array.isArray(backup.carnes)) {
+      db.carnes = backup.carnes;
+      restoredCarnesCount = backup.carnes.length;
+    }
+    let restoredInvoicesCount = 0;
+    if (backup.invoices && Array.isArray(backup.invoices)) {
+      db.invoices = backup.invoices;
+      restoredInvoicesCount = backup.invoices.length;
+    }
+
+    // 7. Restore Contracts, Service Orders, Equipments
+    if (backup.contracts && Array.isArray(backup.contracts)) {
+      db.contracts = backup.contracts;
+    }
+    if (backup.serviceOrders && Array.isArray(backup.serviceOrders)) {
+      db.serviceOrders = backup.serviceOrders;
+    }
+    if (backup.equipments && Array.isArray(backup.equipments)) {
+      db.equipments = backup.equipments;
+    }
+    if (backup.fiscalInvoices && Array.isArray(backup.fiscalInvoices)) {
+      db.fiscalInvoices = backup.fiscalInvoices;
+    }
+
+    // CRITICAL: Save restored state to persistent disk immediately!
+    db.save();
 
     db.addAuditLog({
       type: 'system',
       action: 'SYSTEM_BACKUP_RESTORE',
-      message: `Configurações do sistema restauradas a partir de backup (${backup.exportedAt || 'Data não informada'}).`,
+      message: `Restauração concluída: ${restoredClientsCount} clientes, ${restoredCarnesCount} carnês, ${restoredInvoicesCount} faturas e configurações restauradas.`,
       status: 'success'
     });
 
     res.json({ 
       success: true, 
-      message: 'Configurações restauradas com sucesso!',
+      message: `Configurações e dados restaurados com sucesso! (${restoredClientsCount} clientes, ${restoredCarnesCount} carnês, ${restoredInvoicesCount} faturas)`,
       companySettings: db.companySettings,
       mikrotikConfig: db.mikrotikConfig,
       gatewayConfig: db.gatewayConfig,
       plans: db.plans,
-      towers: db.towers
+      towers: db.towers,
+      servers: db.servers,
+      clientsCount: db.clients.length,
+      carnesCount: db.carnes.length,
+      invoicesCount: db.invoices.length
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao restaurar configurações do backup.' });

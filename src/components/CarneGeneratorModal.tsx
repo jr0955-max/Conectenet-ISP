@@ -17,7 +17,7 @@ import {
   ChevronRight,
   Sparkles
 } from 'lucide-react';
-import { Client, Plan, Invoice, CompanySettings } from '../types/index.js';
+import { Client, Plan, Invoice, CompanySettings, Carne } from '../types/index.js';
 
 interface CarneGeneratorModalProps {
   isOpen: boolean;
@@ -27,6 +27,8 @@ interface CarneGeneratorModalProps {
   companySettings?: CompanySettings;
   onCarnesSaved?: (invoices: Invoice[]) => void;
   initialClientId?: string;
+  targetCarne?: Carne | null;
+  invoices?: Invoice[];
 }
 
 interface CarneSlip {
@@ -48,7 +50,9 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
   plans,
   companySettings,
   onCarnesSaved,
-  initialClientId
+  initialClientId,
+  targetCarne,
+  invoices
 }) => {
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [installmentsCount, setInstallmentsCount] = useState<number>(12); // Padrão 12
@@ -66,17 +70,47 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setSavedSuccess(false);
-      const client = clients.find(c => c.id === initialClientId) || clients[0];
-      if (client) {
-        setSelectedClientId(client.id);
-        const plan = plans.find(p => p.id === client.planId) || plans[0];
-        setInstallmentAmount(plan ? plan.price : 89.90);
-        setDueDay(client.dueDay || 10);
+
+      if (targetCarne) {
+        // Se um carnê específico foi selecionado para visualização/impressão
+        setSelectedClientId(targetCarne.clientId);
+        setInstallmentsCount(targetCarne.totalInstallments); // Ex: 3 parcelas
+        if (targetCarne.installmentAmount) {
+          setInstallmentAmount(targetCarne.installmentAmount);
+        }
+
+        // Extrai dia, mês e ano do firstDueDate do carnê
+        if (targetCarne.firstDueDate) {
+          if (targetCarne.firstDueDate.includes('-')) {
+            const parts = targetCarne.firstDueDate.split('-');
+            if (parts.length === 3) {
+              setStartYear(parseInt(parts[0], 10) || new Date().getFullYear());
+              setStartMonth(parseInt(parts[1], 10) || new Date().getMonth() + 1);
+              setDueDay(parseInt(parts[2], 10) || 10);
+            }
+          } else if (targetCarne.firstDueDate.includes('/')) {
+            const parts = targetCarne.firstDueDate.split('/');
+            if (parts.length === 3) {
+              setDueDay(parseInt(parts[0], 10) || 10);
+              setStartMonth(parseInt(parts[1], 10) || new Date().getMonth() + 1);
+              setStartYear(parseInt(parts[2], 10) || new Date().getFullYear());
+            }
+          }
+        }
+      } else {
+        const client = clients.find(c => c.id === initialClientId) || clients[0];
+        if (client) {
+          setSelectedClientId(client.id);
+          const plan = plans.find(p => p.id === client.planId) || plans[0];
+          setInstallmentAmount(plan ? plan.price : 89.90);
+          setDueDay(client.dueDay || 10);
+        }
       }
     }
-  }, [isOpen, initialClientId, clients, plans]);
+  }, [isOpen, initialClientId, targetCarne, clients, plans]);
 
-  const selectedClient = clients.find(c => c.id === selectedClientId);
+  const selectedClient = clients.find(c => c.id === selectedClientId) || 
+    (targetCarne ? { id: targetCarne.clientId, name: targetCarne.clientName, document: targetCarne.clientDocument, address: 'Zona Rural', email: targetCarne.clientEmail || '' } as Client : null);
   const selectedPlan = selectedClient ? plans.find(p => p.id === selectedClient.planId) : null;
 
   const handleClientChange = (clientId: string) => {
@@ -93,10 +127,16 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
-  // Generate the list of slips with strict numbering (1/12, 2/12, ..., 12/12)
+  // Generate the list of slips with strict numbering (1/N, 2/N, ..., N/N)
   const slips: CarneSlip[] = useMemo(() => {
     const list: CarneSlip[] = [];
-    const count = Math.max(1, Math.min(36, installmentsCount));
+    // Prioriza o total de parcelas do carnê selecionado (ex: 3)
+    const count = targetCarne ? targetCarne.totalInstallments : Math.max(1, Math.min(36, installmentsCount));
+
+    // Busca faturas já associadas ao carnê se disponíveis
+    const matchingInvoices = (targetCarne && invoices)
+      ? invoices.filter(inv => inv.carneId === targetCarne.id || (inv.clientId === targetCarne.clientId && !!inv.installment))
+      : [];
 
     for (let i = 1; i <= count; i++) {
       const targetDate = new Date(startYear, (startMonth - 1) + (i - 1), 1);
@@ -106,15 +146,32 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
 
       const lastDay = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
       const actualDay = Math.min(dueDay, lastDay);
-      const formattedDueDate = `${String(actualDay).padStart(2, '0')}/${mStr}/${yStr}`;
+      const defaultFormattedDueDate = `${String(actualDay).padStart(2, '0')}/${mStr}/${yStr}`;
 
-      // Formatação estrita solicitada: 1/12, 2/12 ... 12/12
+      // Formatação estrita solicitada: 1/3, 2/3, 3/3 (ou 1/12 se 12 parcelas)
       const label = `${i}/${count}`;
+
+      // Fatura real correspondente (se existir)
+      const existingInv = matchingInvoices[i - 1];
+
+      let formattedDueDate = defaultFormattedDueDate;
+      if (existingInv?.dueDate) {
+        if (existingInv.dueDate.includes('-')) {
+          const [y, m, d] = existingInv.dueDate.split('-');
+          formattedDueDate = `${d}/${m}/${y}`;
+        } else {
+          formattedDueDate = existingInv.dueDate;
+        }
+      }
+
+      const amount = existingInv?.amount ?? (targetCarne?.installmentAmount || installmentAmount);
 
       // Gerar linha digitável e código de barras realistas
       const baseNum = (1000 + i * 7).toString();
-      const digitableLine = `23793.38128 60000.010204 12000.${baseNum} 1 ${Math.floor(9000 + i * 11)}00000${Math.floor(installmentAmount * 100)}`;
-      const barcode = `23791${Math.floor(9000 + i * 11)}00000${Math.floor(installmentAmount * 100)}381286000001020412000${baseNum}`;
+      const digitableLine = existingInv?.barcode 
+        ? `${existingInv.barcode.slice(0, 5)}.${existingInv.barcode.slice(5, 10)} ${existingInv.barcode.slice(10, 15)}.${existingInv.barcode.slice(15, 21)} ${existingInv.barcode.slice(21, 26)}.${baseNum} 1 ${Math.floor(9000 + i * 11)}00000${Math.floor(amount * 100)}`
+        : `23793.38128 60000.010204 12000.${baseNum} 1 ${Math.floor(9000 + i * 11)}00000${Math.floor(amount * 100)}`;
+      const barcode = existingInv?.barcode || `23791${Math.floor(9000 + i * 11)}00000${Math.floor(amount * 100)}381286000001020412000${baseNum}`;
 
       list.push({
         installmentNumber: i,
@@ -122,7 +179,7 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
         label,
         referenceMonth: refMonth,
         dueDate: formattedDueDate,
-        amount: installmentAmount,
+        amount,
         barcode,
         digitableLine,
         pixKey: companySettings?.pixKey || 'pix@agroisp.com.br'
@@ -130,7 +187,7 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
     }
 
     return list;
-  }, [installmentsCount, startMonth, startYear, dueDay, installmentAmount, companySettings]);
+  }, [targetCarne, invoices, installmentsCount, startMonth, startYear, dueDay, installmentAmount, companySettings]);
 
   // Group slips into pages of 3 slips each (3 por folha A4)
   const pages = useMemo(() => {
@@ -198,13 +255,15 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <span>Gerador de Carnês de Mensalidade</span>
+                <span>{targetCarne ? `Carnê Nº ${targetCarne.id} - ${targetCarne.clientName}` : 'Gerador de Carnês de Mensalidade'}</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                  3 Carnês por Folha A4
+                  {slips.length} Parcela(s) • 3 por Folha A4
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Gere e imprima carnês com quantidade personalizada (padrão 12x), numeradas de 1/12 até 12/12 com código de barras e Pix.
+                {targetCarne 
+                  ? `Carnê oficial com ${targetCarne.totalInstallments} parcelas (1/${targetCarne.totalInstallments} a ${targetCarne.totalInstallments}/${targetCarne.totalInstallments}) com código de barras e Pix instantâneo.`
+                  : 'Gere e imprima carnês com quantidade personalizada, numeradas por parcela com código de barras e Pix.'}
               </p>
             </div>
           </div>
@@ -251,38 +310,45 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
             <strong className="text-white">{selectedClient?.name || 'Selecione um cliente'}</strong>
             <span className="text-slate-500 mx-2">•</span>
             <span>Total: </span>
-            <strong className="text-emerald-400 font-mono font-bold">{installmentsCount} parcelas de {formatCurrency(installmentAmount)}</strong>
+            <strong className="text-emerald-400 font-mono font-bold">{slips.length} parcelas de {formatCurrency(slips[0]?.amount || installmentAmount)}</strong>
             <span className="text-slate-500 mx-2">•</span>
-            <span>Folhas A4 estimadas: </span>
+            <span>Folhas A4: </span>
             <strong className="text-cyan-300 font-mono">{pages.length} folha(s)</strong>
           </div>
 
           <div className="flex items-center space-x-2">
-            <button
-              onClick={handleSaveToSystem}
-              disabled={isSaving || savedSuccess}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 disabled:opacity-50"
-              title="Salva as 12 parcelas como faturas a vencer no sistema"
-            >
-              {savedSuccess ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-300">Salvo no Sistema!</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 text-cyan-400" />
-                  <span>{isSaving ? 'Salvando...' : 'Salvar no Sistema'}</span>
-                </>
-              )}
-            </button>
+            {targetCarne ? (
+              <div className="px-3.5 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-semibold flex items-center space-x-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>Carnê #{targetCarne.id} Salvo</span>
+              </div>
+            ) : (
+              <button
+                onClick={handleSaveToSystem}
+                disabled={isSaving || savedSuccess}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 disabled:opacity-50"
+                title="Salva as parcelas como faturas a vencer no sistema"
+              >
+                {savedSuccess ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span className="text-emerald-300">Salvo no Sistema!</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 text-cyan-400" />
+                    <span>{isSaving ? 'Salvando...' : 'Salvar no Sistema'}</span>
+                  </>
+                )}
+              </button>
+            )}
 
             <button
               onClick={handlePrint}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-lg shadow-emerald-950"
             >
               <Printer className="w-4 h-4" />
-              <span>Imprimir Carnê (3 por Folha A4)</span>
+              <span>Imprimir Carnê ({slips.length}x)</span>
             </button>
           </div>
         </div>

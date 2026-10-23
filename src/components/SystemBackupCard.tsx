@@ -224,7 +224,7 @@ export const SystemBackupCard: React.FC<SystemBackupCardProps> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao restaurar backup');
 
-      setRestoreSuccess('Configurações restauradas com sucesso!');
+      setRestoreSuccess(data.message || 'Configurações e dados restaurados com sucesso!');
       setRestoreFile(null);
       setRestorePreview(null);
       if (onRefreshData) onRefreshData();
@@ -562,10 +562,37 @@ export const SystemBackupCard: React.FC<SystemBackupCardProps> = ({
         </div>
 
         {restorePreview && (
-          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-slate-300 space-y-1">
-            <p className="font-semibold text-amber-400">Prévia do Backup Selecionado:</p>
-            <p>• Provedor: <strong className="text-white">{restorePreview.companySettings?.name || 'Não informado'}</strong> (CNPJ: {restorePreview.companySettings?.cnpj || 'N/A'})</p>
-            <p>• MikroTik Host: <strong className="text-white">{restorePreview.mikrotikConfig?.host || 'N/A'}</strong></p>
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-slate-300 space-y-2">
+            <p className="font-semibold text-amber-400">Conteúdo Identificado no Backup:</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">CLIENTES</span>
+                <strong className="text-emerald-400 text-sm">
+                  {restorePreview.clients?.length ?? restorePreview.summary?.totalClients ?? 0}
+                </strong>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">CARNÊS</span>
+                <strong className="text-cyan-400 text-sm">
+                  {restorePreview.carnes?.length ?? restorePreview.summary?.totalCarnes ?? 0}
+                </strong>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">FATURAS / BOLETOS</span>
+                <strong className="text-sky-400 text-sm">
+                  {restorePreview.invoices?.length ?? restorePreview.summary?.totalInvoices ?? 0}
+                </strong>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">CONCENTRADORES</span>
+                <strong className="text-amber-400 text-sm">
+                  {restorePreview.servers?.length ?? restorePreview.summary?.totalServers ?? 1} RB(s)
+                </strong>
+              </div>
+            </div>
+            <p className="pt-1">
+              • Provedor: <strong className="text-white">{restorePreview.companySettings?.name || 'Não informado'}</strong> (CNPJ: {restorePreview.companySettings?.cnpj || 'N/A'})
+            </p>
             <p>• Data da Exportação: {restorePreview.exportedAt ? new Date(restorePreview.exportedAt).toLocaleString('pt-BR') : 'Desconhecida'}</p>
           </div>
         )}

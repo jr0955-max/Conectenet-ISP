@@ -85,6 +85,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   // Modals state
   const [isSingleChargeModalOpen, setIsSingleChargeModalOpen] = useState(false);
   const [isCarneModalOpen, setIsCarneModalOpen] = useState(false);
+  const [selectedCarneForPrint, setSelectedCarneForPrint] = useState<Carne | null>(null);
   const [chargeTargetClientId, setChargeTargetClientId] = useState<string | undefined>(undefined);
   const [chargeTargetMonth, setChargeTargetMonth] = useState<string | undefined>(undefined);
 
@@ -934,11 +935,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                             </button>
                             <button
                               onClick={() => {
+                                setSelectedCarneForPrint(carne);
                                 setChargeTargetClientId(carne.clientId);
                                 setIsCarneModalOpen(true);
                               }}
                               className="hover:text-emerald-400 transition"
-                              title="Imprimir Carnê (3 por Folha A4)"
+                              title={`Imprimir Carnê (${carne.totalInstallments} parcelas)`}
                             >
                               <Printer className="w-4 h-4" />
                             </button>
@@ -1048,6 +1050,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         invoices={invoices}
         onPrintCarne={(c) => {
           setIsDetailsModalOpen(false);
+          setSelectedCarneForPrint(c);
           setChargeTargetClientId(c.clientId);
           setIsCarneModalOpen(true);
         }}
@@ -1062,11 +1065,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* ========================================================================= */}
       <CarneGeneratorModal
         isOpen={isCarneModalOpen}
-        onClose={() => setIsCarneModalOpen(false)}
+        onClose={() => {
+          setIsCarneModalOpen(false);
+          setSelectedCarneForPrint(null);
+        }}
         clients={clients}
         plans={plans}
         companySettings={companySettings}
         initialClientId={chargeTargetClientId}
+        targetCarne={selectedCarneForPrint}
+        invoices={invoices}
         onCarnesSaved={(savedInvoices) => {
           loadCarnes();
           if (onRefresh) onRefresh();
