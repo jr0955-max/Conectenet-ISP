@@ -105,7 +105,7 @@ export const initialTowers: Tower[] = [
   }
 ];
 
-// Clientes reais do Provedor (Inicialmente limpo para bancada e produção)
+// Clientes reais do Provedor (Inicialmente limpo para produção)
 export const initialClients: Client[] = [];
 
 export const initialMikrotikServers: MikrotikServer[] = [
@@ -138,8 +138,8 @@ export const initialMikrotikConfig: MikrotikConfig = {
   defaultProfile: 'prof_15m_padrao',
   autoKickOnBlock: true,
   status: 'connected',
-  isSimulated: false, // Bancada física ativa
-  routerModel: 'MikroTik RouterOS (Bancada Física)',
+  isSimulated: false, // Produção ativa
+  routerModel: 'MikroTik RouterOS (Produção)',
   routerOsVersion: 'RouterOS v7.14',
   cpuLoad: 2,
   freeMemoryMb: 980,
@@ -314,7 +314,7 @@ class DatabaseStore {
         timestamp: new Date().toISOString(),
         type: 'system',
         action: 'BOOT_SYSTEM',
-        message: 'Servidor AgroISP Pro inicializado. Sistema limpo pronto para conexão no MikroTik de bancada e cadastro de clientes.',
+        message: 'Servidor AgroISP Pro inicializado. Sistema pronto para conexão no MikroTik e cadastro de clientes.',
         status: 'success'
       }
     ];
@@ -381,7 +381,7 @@ class DatabaseStore {
       this.addAuditLog({
         type: 'client',
         action: 'BATCH_IMPORT',
-        message: `Importação em lote de ${added} clientes concluída com sucesso para bancada/produção.`,
+        message: `Importação em lote de ${added} clientes concluída com sucesso para produção.`,
         status: 'success'
       });
       this.save();

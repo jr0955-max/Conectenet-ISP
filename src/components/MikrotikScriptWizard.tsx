@@ -41,8 +41,8 @@ const HARDWARE_PRESETS: HardwarePreset[] = [
   {
     id: 'hex',
     name: 'MikroTik hEX / RB750Gr3 / hEX S',
-    category: 'Bancada & Pequenos POPs (5 Portas)',
-    description: '5 portas Gigabit Ethernet. Ideal para bancada de testes ou POPs até 100 clientes.',
+    category: 'Pequenos POPs & Entrada (5 Portas)',
+    description: '5 portas Gigabit Ethernet. Ideal para RBs compactas ou POPs até 100 clientes.',
     defaultWan: 'ether1',
     defaultBridgePorts: ['ether2', 'ether3', 'ether4', 'ether5'],
     totalPorts: 5

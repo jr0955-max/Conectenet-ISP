@@ -70,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div 
               onClick={() => setActiveTab('mikrotik')}
               className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-xs cursor-pointer hover:bg-cyan-950/60 transition"
-              title="MikroTik RouterOS Conectado na Bancada"
+              title="MikroTik RouterOS Conectado (Produção)"
             >
               <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
               <div>

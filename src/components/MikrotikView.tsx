@@ -62,13 +62,8 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   onTestConnection,
   onRefresh
 }) => {
-  const [subTab, setSubTab] = useState<'servers' | 'wizard' | 'backups' | 'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('servers');
+  const [subTab, setSubTab] = useState<'servers' | 'wizard' | 'backups' | 'active' | 'secrets' | 'terminal'>('servers');
   const [copiedScript, setCopiedScript] = useState(false);
-  const [copiedBancadaScript, setCopiedBancadaScript] = useState(false);
-  const [copiedQuickFix, setCopiedQuickFix] = useState(false);
-  const [copiedProxmoxCmds, setCopiedProxmoxCmds] = useState(false);
-  const [testResult, setTestResult] = useState<any>(null);
-  const [isTesting, setIsTesting] = useState(false);
 
   const effectiveServers: MikrotikServer[] = servers && servers.length > 0 ? servers : [
     {
@@ -267,17 +262,6 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
     setCliCommand('');
   };
 
-  const handleTest = async () => {
-    setIsTesting(true);
-    try {
-      const res = await onTestConnection({ host, port: Number(port), user });
-      setTestResult(res);
-    } catch (err: any) {
-      setTestResult({ success: false, message: err.message || 'Falha ao conectar no MikroTik.' });
-    } finally {
-      setIsTesting(false);
-    }
-  };
 
   const fullRouterOSSetupScript = `# ==============================================================================
 # Script MikroTik RouterOS para Provedor de Internet & Telecom
@@ -432,30 +416,6 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
           >
             <Terminal className="w-3.5 h-3.5" />
             <span>Terminal CLI & Script</span>
-          </button>
-
-          <button
-            onClick={() => setSubTab('connect')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
-              subTab === 'connect'
-                ? 'bg-cyan-600 text-white shadow'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <Wifi className="w-3.5 h-3.5 text-cyan-300" />
-            <span>🌐 Conectar MikroTik (Porta 01)</span>
-          </button>
-
-          <button
-            onClick={() => setSubTab('config')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
-              subTab === 'config'
-                ? 'bg-emerald-600 text-white shadow'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Conexão & API</span>
           </button>
         </div>
 
@@ -966,12 +926,47 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
         />
       )}
 
-      {/* TAB: RB CONFIGURATION BACKUPS (.rsc SNAPSHOTS) */}
+      {/* TAB: RB CONFIGURATION BACKUPS (.rsc SNAPSHOTS) & BACKUP DO SISTEMA */}
       {subTab === 'backups' && (
-        <RbBackupsView 
-          servers={effectiveServers} 
-          onRefreshParent={onRefresh} 
-        />
+        <div className="space-y-6">
+          <RbBackupsView 
+            servers={effectiveServers} 
+            onRefreshParent={onRefresh} 
+          />
+
+          {/* Backup e Exportação Geral do Sistema (Google Drive e Arquivo JSON) */}
+          <div className="pt-2">
+            <SystemBackupCard
+              companySettings={companySettings || {
+                name: 'Meu Provedor Telecom',
+                legalName: 'Provedor Telecomunicações Ltda',
+                cnpj: '28.491.029/0001-83',
+                logoUrl: '',
+                slogan: 'Internet de Alta Performance',
+                phone: '(11) 4004-9898',
+                email: 'contato@meuprovedor.com.br',
+                website: 'www.meuprovedor.com.br',
+                pixKey: '28.491.029/0001-83',
+                bankName: '033 - Santander',
+                bankCode: '033-7',
+                agency: '1234',
+                account: '56789-0',
+                carteira: '17',
+                boletoInstructions: 'Não receber após vencimento. Multa 2%.',
+                address: {
+                  street: 'Av. Principal',
+                  number: '100',
+                  neighborhood: 'Centro',
+                  city: 'São Paulo',
+                  state: 'SP',
+                  cep: '01001-000'
+                }
+              }}
+              mikrotikConfig={config || undefined}
+              onRefreshData={onRefresh}
+            />
+          </div>
+        </div>
       )}
 
       {/* TAB 1: ACTIVE SESSIONS (/ppp active) */}
@@ -1228,578 +1223,6 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
         </div>
       )}
 
-      {/* TAB: HOW TO CONNECT WITH MIKROTIK (PORTA 01 / ETHER1) */}
-      {/* TAB: HOW TO CONNECT WITH MIKROTIK (PORTA 01 / ETHER1 / PROXMOX) */}
-      {subTab === 'connect' && (
-        <div className="space-y-6">
-          {/* Header Banner */}
-          <div className="bg-gradient-to-r from-cyan-950/80 via-slate-900 to-slate-900 border border-cyan-500/40 rounded-2xl p-5 shadow-lg">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-start space-x-3.5">
-                <div className="p-3 bg-cyan-500/20 text-cyan-400 rounded-xl shrink-0 mt-1 sm:mt-0">
-                  <Wifi className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 uppercase tracking-wide">
-                      Internet Ativa na Porta 01 (ether1)
-                    </span>
-                    <span className="text-xs text-slate-400">Servidor Local no Proxmox (Porta 8728)</span>
-                  </div>
-                  <h3 className="text-base font-bold text-white mt-1">
-                    Conectar o Sistema ao seu MikroTik na Bancada
-                  </h3>
-                  <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                    Seu programa já está rodando no seu <strong>servidor Proxmox</strong> e o MikroTik está com internet na <strong>porta 01 (ether1)</strong>. Para que o sistema se conecte diretamente e crie os clientes automaticamente via API (porta 8728), siga o diagnóstico e os passos abaixo.
-                  </p>
-                </div>
-              </div>
-
-              <div className="shrink-0 flex flex-wrap sm:flex-col gap-2">
-                <button
-                  onClick={() => {
-                    const quickFix = `# 1. Habilitar a API sem restricao de IP (remove bloqueios antigos como 10.246.0.0/30)
-/ip service set api address=0.0.0.0/0 disabled=no port=8728
-
-# 2. Liberar no Firewall a porta 8728 na entrada da porta 01 (ether1) no topo das regras
-/ip firewall filter add action=accept chain=input protocol=tcp dst-port=8728 place-before=0 comment="Liberar API Porta 01 ether1"
-
-# 3. Criar usuario do sistema com permissao de API
-/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
-/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
-`;
-                    navigator.clipboard.writeText(quickFix);
-                    setCopiedQuickFix(true);
-                    setTimeout(() => setCopiedQuickFix(false), 2500);
-                  }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition shadow-md shadow-emerald-950"
-                >
-                  {copiedQuickFix ? <Check className="w-4 h-4" /> : <Zap className="w-4 h-4 text-emerald-200" />}
-                  <span>{copiedQuickFix ? 'Script Copiado!' : 'Copiar Desbloqueio Rápido (Winbox)'}</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    onUpdateConfig({ host: host || '192.168.1.120', port: Number(port) || 8728, user: user || 'admin_isp', blockProfile, defaultProfile, status: 'connected' });
-                    setTestResult({
-                      success: true,
-                      message: `Host ${host || '192.168.1.120'}:8728 salvo e ativado no sistema!`,
-                      details: {
-                        model: 'MikroTik RouterOS (Bancada Local)',
-                        version: 'RouterOS v7.14',
-                        host: host || '192.168.1.120',
-                        port: port || 8728,
-                        user: user || 'admin_isp',
-                        status: 'Online / Modo Bancada'
-                      }
-                    });
-                    setSubTab('config');
-                  }}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition border border-slate-700"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Salvar {host || '192.168.1.120'} no Sistema</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* CARD DE DIAGNÓSTICO: Por que deu EHOSTUNREACH em 192.168.1.120:8728 */}
-          <div className="bg-amber-950/20 border border-amber-500/40 rounded-2xl p-5 space-y-4">
-            <div className="flex items-start space-x-3">
-              <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0 mt-0.5">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center space-x-2">
-                  <span className="px-2 py-0.5 bg-red-500/20 text-red-300 border border-red-500/30 rounded text-[10px] font-mono font-bold">
-                    ERRO TÍPICO NA BANCADA
-                  </span>
-                  <span className="text-xs text-amber-300 font-mono">connect EHOSTUNREACH 192.168.1.120:8728</span>
-                </div>
-                <h4 className="text-sm font-bold text-white mt-1">
-                  Por que esse erro aconteceu e como o MikroTik responde?
-                </h4>
-                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                  O erro <strong className="text-amber-300">EHOSTUNREACH</strong> (Host Inalcançável) significa que o seu servidor Proxmox tentou enviar pacotes para o IP <code>192.168.1.120</code> na porta 8728, mas o MikroTik não aceitou ou descartou a conexão. Isso ocorre por 3 razões exatas:
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-              <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-1.5">
-                <span className="text-xs font-bold text-amber-400 flex items-center space-x-1">
-                  <span>1. Restrição de IP na API</span>
-                </span>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Se anteriormente foi rodado um script com <code className="text-amber-200">address="10.246.0.0/30"</code>, o MikroTik <strong>ignora qualquer IP da sua rede 192.168.1.x</strong>.
-                </p>
-                <div className="text-[10px] text-emerald-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800">
-                  /ip service set api address=0.0.0.0/0
-                </div>
-              </div>
-
-              <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-1.5">
-                <span className="text-xs font-bold text-amber-400 flex items-center space-x-1">
-                  <span>2. Firewall Padrão na ether1</span>
-                </span>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  A porta 01 (ether1) é marcada como WAN. O firewall padrão descarta pacotes de fora (<code className="text-amber-200">drop all from WAN</code>). A regra de liberação precisa estar no topo (place-before=0).
-                </p>
-                <div className="text-[10px] text-emerald-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800">
-                  place-before=0 action=accept
-                </div>
-              </div>
-
-              <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl space-y-1.5">
-                <span className="text-xs font-bold text-amber-400 flex items-center space-x-1">
-                  <span>3. Rede da VM/Container no Proxmox</span>
-                </span>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Se você roda em Docker dentro do Proxmox, a rede bridge interna pode isolar a comunicação. Use <code className="text-cyan-300">network_mode: host</code> no docker-compose para usar a placa de rede física direta.
-                </p>
-                <div className="text-[10px] text-cyan-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800">
-                  ping -c 2 192.168.1.120
-                </div>
-              </div>
-            </div>
-
-            {/* Ação rápida: Script de Desbloqueio */}
-            <div className="pt-2 border-t border-amber-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <span className="text-xs text-amber-200">
-                Copie o comando de 3 linhas e cole no <strong>New Terminal</strong> do Winbox para desbloquear imediatamente:
-              </span>
-              <button
-                onClick={() => {
-                  const quickFix = `/ip service set api address=0.0.0.0/0 disabled=no port=8728
-/ip firewall filter add action=accept chain=input protocol=tcp dst-port=8728 place-before=0 comment="Liberar API Porta 01 ether1"
-/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
-/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
-`;
-                  navigator.clipboard.writeText(quickFix);
-                  setCopiedQuickFix(true);
-                  setTimeout(() => setCopiedQuickFix(false), 2500);
-                }}
-                className="shrink-0 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow"
-              >
-                {copiedQuickFix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedQuickFix ? 'Comandos Copiados!' : 'Copiar Comandos de Desbloqueio'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Os 3 Passos Essenciais na Bancada */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Passo 1: Descobrir o IP */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-              <div className="flex items-center space-x-2.5">
-                <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 font-mono font-bold text-xs flex items-center justify-center border border-cyan-500/30">
-                  1
-                </span>
-                <h4 className="text-sm font-bold text-white">Confirmar o IP da ether1</h4>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                No Winbox, abra o <strong>New Terminal</strong> e digite:
-              </p>
-              <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800 font-mono text-[11px] text-cyan-300 select-all">
-                /ip address print
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Confirme se o IP que aparece na interface <code className="text-white font-mono">ether1</code> é exatamente <code className="text-cyan-300 font-bold">{host || '192.168.1.120'}</code>.
-              </p>
-              <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
-                💡 Se a porta 01 estiver em DHCP Client, digite <code className="text-slate-400">/ip dhcp-client print</code> para ver o status.
-              </div>
-            </div>
-
-            {/* Passo 2: Executar Script no Winbox */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-              <div className="flex items-center space-x-2.5">
-                <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs flex items-center justify-center border border-emerald-500/30">
-                  2
-                </span>
-                <h4 className="text-sm font-bold text-white">Rodar o Script no Winbox</h4>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Clique no botão <strong>"Copiar Desbloqueio Rápido"</strong> acima, vá no Winbox:
-              </p>
-              <ol className="text-[11px] text-slate-400 space-y-1 list-decimal list-inside">
-                <li>Abra o menu <strong>New Terminal</strong></li>
-                <li>Pressione <strong className="text-slate-200">Ctrl + V</strong> (ou clique direito &gt; Paste)</li>
-                <li>Pressione <strong className="text-slate-200">Enter</strong></li>
-              </ol>
-              <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
-                ✅ A API é aberta na porta 8728 sem restrição de IP e liberada no topo do firewall.
-              </div>
-            </div>
-
-            {/* Passo 3: Testar no Proxmox */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-              <div className="flex items-center space-x-2.5">
-                <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold text-xs flex items-center justify-center border border-amber-500/30">
-                  3
-                </span>
-                <h4 className="text-sm font-bold text-white">Testar no Shell do Proxmox</h4>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                No terminal do seu servidor Proxmox, teste a rota:
-              </p>
-              <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-300 select-all space-y-1">
-                <div>ping -c 3 {host || '192.168.1.120'}</div>
-                <div>nc -zv {host || '192.168.1.120'} 8728</div>
-              </div>
-              <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500">
-                Se o <code>nc -zv</code> responder <em>succeeded / open</em>, a conexão pelo painel funcionará imediatamente!
-              </div>
-            </div>
-          </div>
-
-          {/* Script Completo Pronto para a Bancada (PPPoE + Planos + API) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                  <Terminal className="w-4 h-4 text-emerald-400" />
-                  <span>Script Completo de Bancada (API + Profiles dos Planos + Servidor PPPoE)</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Script 100% limpo (sem nenhuma dependência externa), pronto para configurar toda a bancada no Winbox:
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  const ether1Script = `# ==============================================================================
-# SCRIPT DE BANCADA MIKROTIK - TOPOLOGIA: PORTA 1 WAN + RESTANTE NA BRIDGE
-# ==============================================================================
-
-# 1. Criar a Bridge Local e Agrupar as portas restantes (ether2, ether3, ether4, ether5)
-/interface bridge add name=bridge-local comment="Rede Local / Distribuicao de Clientes"
-/interface bridge port add bridge=bridge-local interface=ether2 comment="Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether3 comment="Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether4 comment="Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether5 comment="Clientes / Switch / OLT"
-
-# 2. Atribuir IP do Gateway PPPoE na Bridge Local
-/ip address add address=10.50.2.1/24 interface=bridge-local comment="Gateway PPPoE Local"
-
-# 3. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
-/ip dhcp-client add interface=ether1 disabled=no comment="Receber Link na Porta 01"
-/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
-
-# 4. Criar Pool de IPs para Clientes PPPoE e Pool de Bloqueados
-/ip pool add name=pool-pppoe ranges=10.50.2.10-10.50.2.254 comment="Pool Clientes Ativos"
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254 comment="Pool Inadimplentes"
-
-# 5. Configurar o Profile 'default' com IP Local e Pool (Corrige 'could not determine remote IP address')
-/ppp profile set default local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 comment="Profile Base PPPoE"
-
-# 6. Habilitar a API do RouterOS na porta 8728 para o sistema
-/ip service set api port=8728 address=0.0.0.0/0 disabled=no
-
-# 7. Criar Grupo e Usuario exclusivo do sistema
-/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
-/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
-
-# 8. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
-/ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
-
-# 9. Criar Profile de Bloqueio por Inadimplencia
-/ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte por atraso"
-
-# 10. Criar Perfis de Velocidade dos seus Planos com Gateway e Pool
-${plans.map(p => `/ppp profile add name="${p.profileName}" local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
-
-# 11. Servidor PPPoE Rodando na BRIDGE (bridge-local)
-/interface pppoe-server server add service-name=pppoe-provedor interface=bridge-local default-profile=default authentication=chap,pap,mschap2 one-session-per-host=yes disabled=no
-`;
-                  navigator.clipboard.writeText(ether1Script);
-                  setCopiedBancadaScript(true);
-                  setTimeout(() => setCopiedBancadaScript(false), 2500);
-                }}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
-              >
-                {copiedBancadaScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedBancadaScript ? 'Copiado!' : 'Copiar Script Completo'}</span>
-              </button>
-            </div>
-
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-emerald-400 overflow-x-auto whitespace-pre leading-relaxed select-all">
-{`# 1. Criar a Bridge Local e Agrupar as portas restantes (ether2 a ether5)
-/interface bridge add name=bridge-local comment="Rede Local / Distribuicao de Clientes"
-/interface bridge port add bridge=bridge-local interface=ether2 comment="Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether3 comment="Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether4 comment="Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether5 comment="Clientes / Switch / OLT"
-
-# 2. Atribuir IP do Gateway PPPoE na Bridge Local
-/ip address add address=10.50.2.1/24 interface=bridge-local comment="Gateway PPPoE Local"
-
-# 3. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
-/ip dhcp-client add interface=ether1 disabled=no comment="Receber Link na Porta 01"
-/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
-
-# 4. Criar Pool de IPs para Clientes PPPoE e Pool de Bloqueados
-/ip pool add name=pool-pppoe ranges=10.50.2.10-10.50.2.254 comment="Pool Clientes Ativos"
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254 comment="Pool Inadimplentes"
-
-# 5. Configurar o Profile 'default' com IP Local e Pool (Corrige 'could not determine remote IP address')
-/ppp profile set default local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 comment="Profile Base PPPoE"
-
-# 6. Habilitar a API do RouterOS na porta 8728
-/ip service set api port=8728 address=0.0.0.0/0 disabled=no
-
-# 7. Criar Grupo e Usuário exclusivo para o sistema de gestão
-/user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
-/user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
-
-# 8. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
-/ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
-
-# 9. Criar Pool e Profile de Bloqueio por Inadimplência
-/ppp profile add name="${blockProfile || 'bloqueados'}" \\
-    local-address=10.99.99.1 \\
-    remote-address=pool-bloqueados \\
-    rate-limit=128k/128k \\
-    dns-server=10.99.99.1 \\
-    comment="Corte por atraso"
-
-# 10. Criar Perfis de Velocidade dos seus Planos Ativos com Gateway e Pool
-${plans.map(p => `/ppp profile add name="${p.profileName}" local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
-
-# 11. Servidor PPPoE Rodando na BRIDGE (bridge-local) para atender todas as portas
-/interface pppoe-server server add \\
-    service-name=pppoe-provedor \\
-    interface=bridge-local \\
-    default-profile=default \\
-    authentication=chap,pap,mschap2 \\
-    one-session-per-host=yes \\
-    disabled=no`}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: ROUTER CONFIGURATION & CONNECTION TEST */}
-      {subTab === 'config' && (
-        <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm space-y-6">
-          <div className="border-b border-slate-800 pb-4">
-            <h3 className="text-base font-bold text-white flex items-center space-x-2">
-              <Settings className="w-5 h-5 text-emerald-400" />
-              <span>Configuração da Conexão com MikroTik RouterOS</span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Informe os dados de acesso ao roteador principal para sincronização de secrets e sessões.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Endereço IP / Host do MikroTik
-              </label>
-              <input
-                type="text"
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                placeholder="Ex: 192.168.88.1"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Porta da API RouterOS
-              </label>
-              <input
-                type="number"
-                value={port}
-                onChange={(e) => setPort(Number(e.target.value))}
-                placeholder="8728"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Usuário da API
-              </label>
-              <input
-                type="text"
-                value={user}
-                onChange={(e) => setUser(e.target.value)}
-                placeholder="admin_isp"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Senha da API
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Perfil de Bloqueio (Inadimplentes)
-              </label>
-              <input
-                type="text"
-                value={blockProfile}
-                onChange={(e) => setBlockProfile(e.target.value)}
-                placeholder="bloqueados"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-              />
-              <span className="text-[10px] text-slate-500 mt-1 block">
-                Nome do profile criado no MikroTik com redirecionamento de corte.
-              </span>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Perfil Padrão (Default)
-              </label>
-              <input
-                type="text"
-                value={defaultProfile}
-                onChange={(e) => setDefaultProfile(e.target.value)}
-                placeholder="default"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
-
-          {/* Test connection result banner */}
-          {testResult && (
-            <div className={`p-4 rounded-lg border text-xs flex items-start space-x-3 ${
-              testResult.success
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                : 'bg-red-950/40 border-red-500/40 text-red-300'
-            }`}>
-              {testResult.success ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-              ) : (
-                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-              )}
-              <div className="flex-1">
-                <p className="font-semibold text-sm">{testResult.message}</p>
-                {testResult.details && testResult.success && (
-                  <p className="text-[11px] font-mono text-slate-300 mt-1">
-                    {testResult.details.model && `Modelo: ${testResult.details.model}`}
-                    {testResult.details.version && ` | Versão: ${testResult.details.version}`}
-                    {testResult.details.cpuLoad !== undefined && testResult.details.cpuLoad !== null && ` | CPU: ${testResult.details.cpuLoad}%`}
-                  </p>
-                )}
-                {testResult.details && !testResult.success && testResult.details.dica && (
-                  <div className="mt-2 text-[11px] text-amber-200 leading-relaxed bg-amber-950/40 p-3 rounded-lg border border-amber-500/30 space-y-3">
-                    <p className="font-semibold text-amber-300 flex items-center space-x-1">
-                      <span>💡 Por que isso aconteceu e como resolver:</span>
-                    </p>
-                    <p className="whitespace-pre-line font-mono text-[10.5px] bg-slate-950/80 p-2.5 rounded border border-amber-500/20">{testResult.details.dica}</p>
-                    
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const quickCmd = `/ip service set api address=0.0.0.0/0 disabled=no port=${port || 8728}\n/ip firewall filter add action=accept chain=input in-interface=ether1 protocol=tcp dst-port=${port || 8728} place-before=0 comment="Liberar API Porta 01 ether1"\n/user add name="${user || 'admin_isp'}" password="${password || 'SuaSenhaForte123'}" group=full address=0.0.0.0/0 comment="API Proxmox"`;
-                          navigator.clipboard.writeText(quickCmd);
-                          setCopiedQuickFix(true);
-                          setTimeout(() => setCopiedQuickFix(false), 2500);
-                        }}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center space-x-1.5 transition shadow"
-                      >
-                        {copiedQuickFix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedQuickFix ? 'Comandos Copiados!' : 'Copiar Comandos de Desbloqueio (Winbox)'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onUpdateConfig({ host, port: Number(port), user, blockProfile, defaultProfile, status: 'connected' });
-                          setTestResult({
-                            success: true,
-                            message: `Modo Bancada Local (${host}:${port}) ativado e salvo no sistema!`,
-                            details: {
-                              model: 'MikroTik RouterOS (Bancada Local)',
-                              version: 'RouterOS v7.14',
-                              host,
-                              port,
-                              user,
-                              status: 'Online / Modo Bancada'
-                            }
-                          });
-                        }}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center space-x-1.5 transition shadow"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Salvar e Forçar Conexão ({host})</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Action buttons */}
-          <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-            <button
-              onClick={handleTest}
-              disabled={isTesting}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50 flex items-center space-x-2"
-            >
-              <Activity className="w-4 h-4 text-cyan-400" />
-              <span>{isTesting ? 'Testando Conexão...' : 'Testar Conexão RouterOS'}</span>
-            </button>
-
-            <button
-              onClick={() => onUpdateConfig({ host, port: Number(port), user, blockProfile, defaultProfile })}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition shadow-md shadow-emerald-950"
-            >
-              Salvar Configurações
-            </button>
-          </div>
-
-          {/* Backup e Exportação do Sistema no Google Drive e JSON */}
-          <div className="pt-6 border-t border-slate-800">
-            <SystemBackupCard
-              companySettings={companySettings || {
-                name: 'Meu Provedor Telecom',
-                legalName: 'Provedor Telecomunicações Ltda',
-                cnpj: '28.491.029/0001-83',
-                logoUrl: '',
-                slogan: 'Internet de Alta Performance',
-                phone: '(11) 4004-9898',
-                email: 'contato@meuprovedor.com.br',
-                website: 'www.meuprovedor.com.br',
-                pixKey: '28.491.029/0001-83',
-                bankName: '033 - Santander',
-                bankCode: '033-7',
-                agency: '1234',
-                account: '56789-0',
-                carteira: '17',
-                boletoInstructions: 'Não receber após vencimento. Multa 2%.',
-                address: {
-                  street: 'Av. Principal',
-                  number: '100',
-                  neighborhood: 'Centro',
-                  city: 'São Paulo',
-                  state: 'SP',
-                  cep: '01001-000'
-                }
-              }}
-              mikrotikConfig={config || undefined}
-              onRefreshData={onRefresh}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 };

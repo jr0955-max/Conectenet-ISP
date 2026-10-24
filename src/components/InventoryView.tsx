@@ -40,7 +40,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ equipments, onOpen
       case 'comodato':
         return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">Em Comodato</span>;
       case 'manutencao':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Em Bancada</span>;
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Em Manutenção</span>;
       case 'avariado':
         return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">Defeituoso</span>;
     }
@@ -70,7 +70,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ equipments, onOpen
             <option value="all">Todos os Status</option>
             <option value="disponivel">Disponíveis (Estoque)</option>
             <option value="comodato">Em Comodato (Cliente)</option>
-            <option value="manutencao">Bancada / Teste</option>
+            <option value="manutencao">Em Manutenção</option>
           </select>
         </div>
 
