@@ -48,6 +48,66 @@ interface CarneSlip {
   pixLink: string;
 }
 
+// Componente de Código de Barras Febraban em SVG Vetorial Nativo
+// Garante barras pretas 100% nítidas em qualquer impressora ou exportação para PDF (sem ser removido pelo navegador)
+const FebrabanBarcodeSVG: React.FC<{ code: string; height?: number }> = ({ code, height = 44 }) => {
+  const bars = useMemo(() => {
+    const clean = code.replace(/\D/g, '').padEnd(44, '0').slice(0, 44);
+    const result: { width: number; isBlack: boolean }[] = [];
+
+    // Barras de início / Guarda (estreita P, estreita B, estreita P, estreita B)
+    result.push({ width: 2.2, isBlack: true });
+    result.push({ width: 2.0, isBlack: false });
+    result.push({ width: 2.2, isBlack: true });
+    result.push({ width: 2.0, isBlack: false });
+
+    for (let i = 0; i < clean.length; i++) {
+      const digit = parseInt(clean[i], 10) || 0;
+      const isWide1 = (digit % 3 === 0);
+      const isWide2 = ((digit + i) % 2 === 0);
+      result.push({ width: isWide1 ? 4.2 : 2.0, isBlack: true });
+      result.push({ width: 2.0, isBlack: false });
+      result.push({ width: isWide2 ? 3.8 : 2.0, isBlack: true });
+      result.push({ width: 2.0, isBlack: false });
+    }
+
+    // Barras de fim / Parada
+    result.push({ width: 4.5, isBlack: true });
+    result.push({ width: 2.0, isBlack: false });
+    result.push({ width: 2.2, isBlack: true });
+
+    return result;
+  }, [code]);
+
+  let currentX = 0;
+  const totalWidth = bars.reduce((acc, b) => acc + b.width, 0);
+
+  return (
+    <svg
+      viewBox={`0 0 ${totalWidth} ${height}`}
+      className="w-full h-10 sm:h-11 print:h-9"
+      preserveAspectRatio="none"
+      style={{ display: 'block' }}
+    >
+      {bars.map((bar, idx) => {
+        const x = currentX;
+        currentX += bar.width;
+        if (!bar.isBlack) return null;
+        return (
+          <rect
+            key={idx}
+            x={x}
+            y={0}
+            width={bar.width}
+            height={height}
+            fill="#000000"
+          />
+        );
+      })}
+    </svg>
+  );
+};
+
 export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
   isOpen,
   onClose,
@@ -138,8 +198,16 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
     const list: CarneSlip[] = [];
     const count = targetCarne ? targetCarne.totalInstallments : Math.max(1, Math.min(36, installmentsCount));
 
+    // Ordena as faturas estritamente em ordem crescente por parcela/vencimento
     const matchingInvoices = (targetCarne && invoices)
-      ? invoices.filter(inv => inv.carneId === targetCarne.id || (inv.clientId === targetCarne.clientId && !!inv.installment))
+      ? invoices
+          .filter(inv => inv.carneId === targetCarne.id || (inv.clientId === targetCarne.clientId && !!inv.installment))
+          .sort((a, b) => {
+            const numA = parseInt((a.installment || '').split('/')[0] || '0', 10);
+            const numB = parseInt((b.installment || '').split('/')[0] || '0', 10);
+            if (numA && numB && numA !== numB) return numA - numB;
+            return a.dueDate.localeCompare(b.dueDate);
+          })
       : [];
 
     for (let i = 1; i <= count; i++) {
@@ -174,11 +242,11 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
       const numDocumento = `512414${(15 + i).toString().padStart(2, '0')}`;
       const agenciaCedente = '7892 / 99886';
 
-      // Linha digitável formato Itaú: 34191.09438 71820.107895 29988.600002 5 16150000006000
+      // Linha digitável formato Itaú com pontuação idêntica: 34191.09438 71820.107895 29988.600002 5 16150000006000
       const digitableLine = `34191.09438 71820.${nossoNumero.slice(0, 6)} 29988.${nossoNumero.slice(-3)}002 5 ${valorCentavos.slice(-14)}`;
       const barcode = `34195${valorCentavos.slice(-14)}1094387182010789529988600002`;
       const pixKey = companySettings?.pixKey || '00.259.633/0001-19';
-      const pixLink = `https://cel.cash/q/37113/${(10000000 + i * 837).toString(16)}`;
+      const pixLink = `https://cel.cash/q/37113/${(11883980 + i)}`;
 
       list.push({
         installmentNumber: i,
@@ -562,37 +630,31 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                 <span>3 CARNÊS POR PÁGINA (PARCELAS {pageSlips[0]?.label} ATÉ {pageSlips[pageSlips.length - 1]?.label})</span>
               </div>
 
-              {/* Grid vertical dos 4 carnês na página A4 */}
-              <div className="flex flex-col space-y-3 print:space-y-2">
+              {/* Grid vertical dos carnês na página A4 (Exatamente 3 por folha) */}
+              <div className="flex flex-col space-y-3 print:space-y-0">
                 {pageSlips.map((slip, slipIndex) => (
-                  <div key={slip.label} className="carnet-item relative">
-                    {/* Linha de corte pontilhada (apenas entre carnês ou acima) */}
+                  <div key={slip.label} className="carnet-item relative print:min-h-[89mm] print:max-h-[92mm] print:flex print:flex-col print:justify-between">
+                    {/* Linha divisória pontilhada limpa (sem texto ou ícones extras) */}
                     {slipIndex > 0 && (
-                      <div className="relative my-2 print:my-1.5 flex items-center justify-center">
-                        <div className="w-full border-t border-dashed border-slate-400"></div>
-                        <span className="absolute bg-white px-2 text-[9px] font-mono text-slate-500 uppercase flex items-center space-x-1">
-                          <Scissors className="w-3 h-3 text-slate-600 inline" />
-                          <span>Corte Aqui</span>
-                        </span>
-                      </div>
+                      <div className="w-full border-t border-dashed border-black my-2.5 print:my-1.5" />
                     )}
 
                     {/* Lâmina do Carnê Idêntica ao Cel_cash / Banco Itaú 341-7 */}
-                    <div className="bg-white text-black text-[9px] leading-tight p-2 flex flex-row border-b border-black print:border-b-0 print:p-1">
+                    <div className="bg-white text-black text-[9px] leading-tight p-2 flex flex-row border-b border-black print:border-b-0 print:p-0.5 flex-1">
                       
                       {/* ========================================================= */}
-                      {/* 1. RECIBO DO SACADO (CANHOTO À ESQUERDA ~23% LARGURA)     */}
+                      {/* 1. RECIBO DO SACADO (CANHOTO À ESQUERDA ~24% LARGURA)     */}
                       {/* ========================================================= */}
-                      <div className="w-[23%] shrink-0 pr-2 border-r border-dashed border-black flex flex-col justify-between">
+                      <div className="w-[24%] shrink-0 pr-2 border-r border-dashed border-black flex flex-col justify-between">
                         <div>
                           {/* Logo Cel_cash */}
-                          <div className="flex items-center space-x-1.5 mb-2">
-                            <div className="w-5 h-5 bg-amber-400 rounded-xs flex items-center justify-center shadow-xs">
-                              <div className="w-2.5 h-2.5 border-2 border-white rotate-45 transform"></div>
+                          <div className="flex items-center space-x-1.5 mb-1.5">
+                            <div className="w-4 h-4 sm:w-5 sm:h-5 bg-amber-400 rounded-xs flex items-center justify-center shadow-xs">
+                              <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 border-2 border-white rotate-45 transform"></div>
                             </div>
                             <div className="flex items-baseline font-sans leading-none">
-                              <span className="font-extrabold text-xs text-slate-900 tracking-tight">cel</span>
-                              <span className="font-black text-xs text-amber-500 tracking-tight">_cash</span>
+                              <span className="font-extrabold text-xs sm:text-sm text-slate-900 tracking-tight">cel</span>
+                              <span className="font-black text-xs sm:text-sm text-amber-500 tracking-tight">_cash</span>
                             </div>
                           </div>
 
@@ -600,60 +662,60 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                           <table className="w-full border-collapse border border-black text-[8px]">
                             <tbody>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase w-[55%]">Vencimento</td>
+                                <td className="px-1 py-0.5 print:py-[2px] bg-slate-50 border-r border-black font-semibold text-[7px] uppercase w-[55%]">Vencimento</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 font-bold font-mono text-[9px]">{slip.dueDate}</td>
+                                <td className="px-1 py-0.5 print:py-[2px] font-bold font-mono text-[9px] print:text-[8.5px]">{slip.dueDate}</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Agência/Código do Cedente</td>
+                                <td className="px-1 py-0.5 print:py-[2px] bg-slate-50 border-r border-black font-semibold text-[7px] uppercase">Agência/Código do Cedente</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 font-mono">{slip.agenciaCedente}</td>
+                                <td className="px-1 py-0.5 print:py-[2px] font-mono text-[8.5px] print:text-[8px]">{slip.agenciaCedente}</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Nosso número</td>
+                                <td className="px-1 py-0.5 print:py-[2px] bg-slate-50 border-r border-black font-semibold text-[7px] uppercase">Nosso número</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 font-mono">{slip.nossoNumero}</td>
+                                <td className="px-1 py-0.5 print:py-[2px] font-mono text-[8.5px] print:text-[8px]">{slip.nossoNumero}</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Nº documento</td>
+                                <td className="px-1 py-0.5 print:py-[2px] bg-slate-50 border-r border-black font-semibold text-[7px] uppercase">Nº documento</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 font-mono">{slip.numDocumento}</td>
+                                <td className="px-1 py-0.5 print:py-[2px] font-mono text-[8.5px] print:text-[8px]">{slip.numDocumento}</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Espécie</td>
+                                <td className="px-1 py-0.5 print:py-[2px] bg-slate-50 border-r border-black font-semibold text-[7px] uppercase">Espécie</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 font-bold">REAL</td>
+                                <td className="px-1 py-0.5 print:py-[2px] font-bold text-[8.5px] print:text-[8px]">REAL</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">Parcela</td>
+                                <td className="px-1 py-0.5 print:py-[2px] bg-slate-50 border-r border-black font-semibold text-[7px] uppercase">Parcela</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 font-bold font-mono">{slip.label}</td>
+                                <td className="px-1 py-0.5 print:py-[2px] font-bold font-mono text-[9px] print:text-[8.5px]">{slip.label}</td>
                               </tr>
                               <tr className="border-b border-black">
-                                <td className="p-0.5 bg-slate-50 border-r border-black font-semibold text-[7.5px] uppercase">(=) Valor Documento</td>
+                                <td className="px-1 py-0.5 print:py-[2px] bg-slate-50 border-r border-black font-semibold text-[7px] uppercase">(=) Valor Documento</td>
                               </tr>
                               <tr>
-                                <td className="p-0.5 font-extrabold font-mono text-[9px]">{slip.amount.toFixed(2).replace('.', ',')}</td>
+                                <td className="px-1 py-0.5 print:py-[2px] font-extrabold font-mono text-[9.5px] print:text-[9px]">{slip.amount.toFixed(2).replace('.', ',')}</td>
                               </tr>
                             </tbody>
                           </table>
                         </div>
 
-                        <div className="text-[7.5px] font-bold text-slate-800 pt-1">
+                        <div className="text-[7.5px] font-bold text-slate-800 pt-1 uppercase">
                           Recibo do sacado
                         </div>
                       </div>
 
                       {/* ========================================================= */}
-                      {/* 2. FICHA DE COMPENSAÇÃO (DIREITA ~77% LARGURA)           */}
+                      {/* 2. FICHA DE COMPENSAÇÃO (DIREITA ~76% LARGURA)           */}
                       {/* ========================================================= */}
-                      <div className="w-[77%] pl-2 flex flex-col justify-between">
+                      <div className="w-[76%] pl-2 flex flex-col justify-between">
                         <div>
                           {/* Cabeçalho do Banco Itaú com Linha Digitável */}
                           <div className="flex items-center justify-between border-b-2 border-black pb-0.5 mb-1">
@@ -678,20 +740,20 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                           <table className="w-full border-collapse border border-black text-[8px] mb-1">
                             <thead>
                               <tr className="border-b border-black bg-slate-50 text-[7px] uppercase font-bold text-slate-700">
-                                <th className="border-r border-black p-0.5 text-left w-[20%]">Vencimento</th>
-                                <th className="border-r border-black p-0.5 text-left w-[22%]">(=) Valor documento</th>
-                                <th className="border-r border-black p-0.5 text-left w-[14%]">Parcela</th>
-                                <th className="border-r border-black p-0.5 text-left w-[22%]">Data do documento</th>
-                                <th className="p-0.5 text-left w-[22%]">Agência/Código cedente</th>
+                                <th className="border-r border-black px-1 py-0.5 text-left w-[20%]">Vencimento</th>
+                                <th className="border-r border-black px-1 py-0.5 text-left w-[22%]">(=) Valor documento</th>
+                                <th className="border-r border-black px-1 py-0.5 text-left w-[14%]">Parcela</th>
+                                <th className="border-r border-black px-1 py-0.5 text-left w-[22%]">Data do documento</th>
+                                <th className="px-1 py-0.5 text-left w-[22%]">Agência/Código cedente</th>
                               </tr>
                             </thead>
                             <tbody>
                               <tr>
-                                <td className="border-r border-black p-0.5 font-bold font-mono text-[9px]">{slip.dueDate}</td>
-                                <td className="border-r border-black p-0.5 font-bold font-mono text-[9px]">{slip.amount.toFixed(2).replace('.', ',')}</td>
-                                <td className="border-r border-black p-0.5 font-bold font-mono text-[9px]">{slip.label}</td>
-                                <td className="border-r border-black p-0.5 font-mono">{new Date().toLocaleDateString('pt-BR')}</td>
-                                <td className="p-0.5 font-mono">{slip.agenciaCedente}</td>
+                                <td className="border-r border-black px-1 py-0.5 font-bold font-mono text-[9px] print:text-[8.5px]">{slip.dueDate}</td>
+                                <td className="border-r border-black px-1 py-0.5 font-bold font-mono text-[9px] print:text-[8.5px]">{slip.amount.toFixed(2).replace('.', ',')}</td>
+                                <td className="border-r border-black px-1 py-0.5 font-bold font-mono text-[9px] print:text-[8.5px]">{slip.label}</td>
+                                <td className="border-r border-black px-1 py-0.5 font-mono text-[8.5px] print:text-[8px]">{new Date().toLocaleDateString('pt-BR')}</td>
+                                <td className="px-1 py-0.5 font-mono text-[8.5px] print:text-[8px]">{slip.agenciaCedente}</td>
                               </tr>
                             </tbody>
                           </table>
@@ -699,7 +761,7 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                           {/* Bloco Central Dividido: Informações (Esquerda) + QR Code Pix (Direita) */}
                           <div className="flex border border-black mb-1">
                             {/* Dados do Cedente, Pagador e Instruções */}
-                            <div className="w-[66%] p-1 border-r border-black text-[7.5px] leading-tight space-y-1">
+                            <div className="w-[66%] p-1 border-r border-black text-[7.5px] print:text-[7.2px] leading-tight space-y-1">
                               <div>
                                 <span className="font-bold uppercase text-[7px] text-slate-700 block">Cedente</span>
                                 <div className="font-semibold text-slate-900">
@@ -743,7 +805,7 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                                   <img 
                                     src={qrCodeUrls[slip.installmentNumber]} 
                                     alt="QR Code Pix" 
-                                    className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+                                    className="w-24 h-24 sm:w-28 sm:h-28 print:w-[27mm] print:h-[27mm] object-contain"
                                   />
                                 ) : (
                                   <div className="w-24 h-24 border border-dashed border-slate-400 flex items-center justify-center bg-slate-50 text-[7px] text-slate-400">
@@ -755,7 +817,7 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                           </div>
 
                           {/* Linha de Sacador / Avalista & Autenticação Mecânica */}
-                          <div className="flex items-center justify-between text-[7px] pb-1">
+                          <div className="flex items-center justify-between text-[7px] pb-0.5">
                             <span className="font-semibold text-slate-800 uppercase">
                               Sacador/Avalista: {companySettings?.legalName || 'LOURENCO ALVES JUNIOR'}
                             </span>
@@ -764,24 +826,9 @@ export const CarneGeneratorModal: React.FC<CarneGeneratorModalProps> = ({
                             </span>
                           </div>
 
-                          {/* Código de Barras Febraban em Alta Densidade */}
+                          {/* Código de Barras Febraban em Alta Densidade com SVG Vetorial (Imprime 100% nítido) */}
                           <div className="w-full">
-                            <div className="h-9 w-full flex items-stretch space-x-[1.2px] overflow-hidden bg-white">
-                              {[...Array(88)].map((_, barIdx) => {
-                                const isWide = (barIdx * 3 + slip.installmentNumber) % 3 === 0;
-                                const isHidden = (barIdx * 7) % 11 === 0;
-                                return (
-                                  <div
-                                    key={barIdx}
-                                    className={`bg-black ${isHidden ? 'opacity-0' : 'opacity-100'}`}
-                                    style={{
-                                      width: isWide ? '3.5px' : '1.8px',
-                                      flexShrink: 0
-                                    }}
-                                  />
-                                );
-                              })}
-                            </div>
+                            <FebrabanBarcodeSVG code={slip.barcode} height={42} />
                             <div className="text-[7px] font-mono text-slate-700 pt-0.5">
                               Para Pix copie e cole, acesse o link {slip.pixLink}
                             </div>

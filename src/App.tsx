@@ -952,7 +952,7 @@ export default function App() {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-slate-900 bg-slate-950/80 py-4 text-xs text-slate-500 text-center px-4 sm:px-6">
+        <footer className="border-t border-slate-900 bg-slate-950/80 py-4 text-xs text-slate-500 text-center px-4 sm:px-6 print:hidden">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
             <div>
               {companySettings.name} • Sistema de Gestão & Faturamento para Provedores (MikroTik RouterOS, O.S, Cobranças & Fibra)
