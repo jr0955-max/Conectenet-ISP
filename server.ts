@@ -915,6 +915,20 @@ app.delete('/api/mikrotik/backups/:id', (req, res) => {
   res.json(result);
 });
 
+// Salvar script gerado pelo Assistente / Wizard na pasta de backups (.rsc)
+app.post('/api/mikrotik/save-wizard-script', (req, res) => {
+  try {
+    const { name, content, model } = req.body;
+    if (!content) {
+      return res.status(400).json({ error: 'Conteúdo do script é obrigatório.' });
+    }
+    const backup = mikrotikService.saveWizardScript(name, content, model);
+    res.json({ success: true, backup, message: 'Script salvo no sistema com sucesso na pasta de backups!' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao salvar script gerado' });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // 4. INVOICES, PIX & BOLETOS
 // -----------------------------------------------------------------------------

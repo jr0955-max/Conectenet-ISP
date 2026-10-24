@@ -29,11 +29,13 @@ import {
   Eye,
   FileText,
   FolderDown,
-  Clock
+  Clock,
+  Sparkles
 } from 'lucide-react';
 import { MikrotikConfig, ActiveSession, Client, Plan, CompanySettings, MikrotikServer, RbBackup, RbBackupConfig } from '../types/index.js';
 import { SystemBackupCard } from './SystemBackupCard.js';
 import { RbBackupsView } from './RbBackupsView.js';
+import { MikrotikScriptWizard } from './MikrotikScriptWizard.js';
 
 interface MikrotikViewProps {
   config: MikrotikConfig | null;
@@ -60,7 +62,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   onTestConnection,
   onRefresh
 }) => {
-  const [subTab, setSubTab] = useState<'servers' | 'backups' | 'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('servers');
+  const [subTab, setSubTab] = useState<'servers' | 'wizard' | 'backups' | 'active' | 'secrets' | 'terminal' | 'connect' | 'config'>('servers');
   const [copiedScript, setCopiedScript] = useState(false);
   const [copiedBancadaScript, setCopiedBancadaScript] = useState(false);
   const [copiedQuickFix, setCopiedQuickFix] = useState(false);
@@ -290,12 +292,21 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
 /interface bridge port add bridge=bridge-local interface=ether4 comment="Porta Clientes / Switch / OLT"
 /interface bridge port add bridge=bridge-local interface=ether5 comment="Porta Clientes / Switch / OLT"
 
-# 2. Configurar a Porta 01 (ether1) como WAN (Link de Internet) e NAT Masquerade
+# 2. Atribuir IP do Gateway PPPoE na Bridge Local
+/ip address add address=10.50.2.1/24 interface=bridge-local comment="Gateway PPPoE Local"
+
+# 3. Configurar a Porta 01 (ether1) como WAN (Link de Internet) e NAT Masquerade
 /ip dhcp-client add interface=ether1 disabled=no comment="Receber Link de Internet na Porta 01"
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
 
-# 3. Criar Pool de IP e Perfil para Clientes Bloqueados / Corte
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
+# 4. Criar Pool de IPs para Clientes PPPoE e Pool de Bloqueados
+/ip pool add name=pool-pppoe ranges=10.50.2.10-10.50.2.254 comment="Pool Clientes Ativos"
+/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254 comment="Pool Inadimplentes"
+
+# 5. Configurar o Profile 'default' com IP Local e Pool (Corrige 'could not determine remote IP address')
+/ppp profile set default local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 comment="Profile Base PPPoE"
+
+# 6. Perfil de Bloqueio por Inadimplência
 /ppp profile add name="${blockProfile}" \\
     local-address=10.99.99.1 \\
     remote-address=pool-bloqueados \\
@@ -303,14 +314,14 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
     dns-server=10.99.99.1 \\
     comment="Perfil de Inadimplentes com redirecionamento de aviso"
 
-# 4. Criar Perfis Normais de Velocidade (Planos de Acesso)
-/ppp profile add name=prof_15m_padrao rate-limit=5M/15M comment="Plano 15M Basico"
-/ppp profile add name=prof_30m_ultra rate-limit=10M/30M comment="Plano 30M Ultra"
-/ppp profile add name=prof_60m_plus rate-limit=20M/60M comment="Plano 60M Plus"
-/ppp profile add name=prof_150m_fibra rate-limit=50M/150M comment="Fibra FTTH 150M"
-/ppp profile add name=prof_300m_corp rate-limit=100M/300M comment="Fibra 300M Gamer"
+# 7. Criar Perfis Normais de Velocidade (Planos de Acesso com Gateway e Pool)
+/ppp profile add name=prof_15m_padrao local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=5M/15M comment="Plano 15M Basico"
+/ppp profile add name=prof_30m_ultra local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=10M/30M comment="Plano 30M Ultra"
+/ppp profile add name=prof_60m_plus local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=20M/60M comment="Plano 60M Plus"
+/ppp profile add name=prof_150m_fibra local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=50M/150M comment="Fibra FTTH 150M"
+/ppp profile add name=prof_300m_corp local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=100M/300M comment="Fibra 300M Gamer"
 
-# 5. Habilitar Servidor PPPoE Rodando na BRIDGE (bridge-local)
+# 8. Habilitar Servidor PPPoE Rodando na BRIDGE (bridge-local)
 /interface pppoe-server server add \\
     service-name=pppoe-provedor \\
     interface=bridge-local \\
@@ -319,7 +330,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
     one-session-per-host=yes \\
     disabled=no
 
-# 6. Habilitar API Socket do MikroTik (Porta 8728) sem restricao de IP
+# 9. Habilitar API Socket do MikroTik (Porta 8728) sem restricao de IP
 /ip service enable api
 /ip service set api port=8728 address=0.0.0.0/0
 
@@ -351,6 +362,21 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
             <span>Concentradores / RBs</span>
             <span className="ml-1 px-1.5 py-0.2 bg-emerald-700/60 text-white rounded-full text-[10px]">
               {effectiveServers.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setSubTab('wizard')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+              subTab === 'wizard'
+                ? 'bg-emerald-600 text-white shadow'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Gerador de Script RB</span>
+            <span className="px-1.5 py-0.2 bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-full text-[9px] font-bold">
+              Wizard
             </span>
           </button>
 
@@ -931,6 +957,15 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
         </div>
       )}
 
+      {/* TAB WIZARD: GERADOR DE SCRIPT MIKROTIK PASSO A PASSO */}
+      {subTab === 'wizard' && (
+        <MikrotikScriptWizard
+          plans={plans}
+          companySettings={companySettings}
+          onScriptSaved={onRefresh}
+        />
+      )}
+
       {/* TAB: RB CONFIGURATION BACKUPS (.rsc SNAPSHOTS) */}
       {subTab === 'backups' && (
         <RbBackupsView 
@@ -1444,28 +1479,37 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
 /interface bridge port add bridge=bridge-local interface=ether4 comment="Clientes / Switch / OLT"
 /interface bridge port add bridge=bridge-local interface=ether5 comment="Clientes / Switch / OLT"
 
-# 2. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
+# 2. Atribuir IP do Gateway PPPoE na Bridge Local
+/ip address add address=10.50.2.1/24 interface=bridge-local comment="Gateway PPPoE Local"
+
+# 3. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
 /ip dhcp-client add interface=ether1 disabled=no comment="Receber Link na Porta 01"
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
 
-# 3. Habilitar a API do RouterOS na porta 8728 para o sistema
+# 4. Criar Pool de IPs para Clientes PPPoE e Pool de Bloqueados
+/ip pool add name=pool-pppoe ranges=10.50.2.10-10.50.2.254 comment="Pool Clientes Ativos"
+/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254 comment="Pool Inadimplentes"
+
+# 5. Configurar o Profile 'default' com IP Local e Pool (Corrige 'could not determine remote IP address')
+/ppp profile set default local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 comment="Profile Base PPPoE"
+
+# 6. Habilitar a API do RouterOS na porta 8728 para o sistema
 /ip service set api port=8728 address=0.0.0.0/0 disabled=no
 
-# 4. Criar Grupo e Usuario exclusivo do sistema
+# 7. Criar Grupo e Usuario exclusivo do sistema
 /user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
 /user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
 
-# 5. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
+# 8. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
 /ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
 
-# 6. Criar Pool e Profile de Bloqueio por Inadimplencia
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
+# 9. Criar Profile de Bloqueio por Inadimplencia
 /ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte por atraso"
 
-# 7. Criar Perfis de Velocidade dos seus Planos
-${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
+# 10. Criar Perfis de Velocidade dos seus Planos com Gateway e Pool
+${plans.map(p => `/ppp profile add name="${p.profileName}" local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
 
-# 8. Servidor PPPoE Rodando na BRIDGE (bridge-local)
+# 11. Servidor PPPoE Rodando na BRIDGE (bridge-local)
 /interface pppoe-server server add service-name=pppoe-provedor interface=bridge-local default-profile=default authentication=chap,pap,mschap2 one-session-per-host=yes disabled=no
 `;
                   navigator.clipboard.writeText(ether1Script);
@@ -1487,22 +1531,31 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
 /interface bridge port add bridge=bridge-local interface=ether4 comment="Clientes / Switch / OLT"
 /interface bridge port add bridge=bridge-local interface=ether5 comment="Clientes / Switch / OLT"
 
-# 2. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
+# 2. Atribuir IP do Gateway PPPoE na Bridge Local
+/ip address add address=10.50.2.1/24 interface=bridge-local comment="Gateway PPPoE Local"
+
+# 3. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
 /ip dhcp-client add interface=ether1 disabled=no comment="Receber Link na Porta 01"
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
 
-# 3. Habilitar a API do RouterOS na porta 8728
+# 4. Criar Pool de IPs para Clientes PPPoE e Pool de Bloqueados
+/ip pool add name=pool-pppoe ranges=10.50.2.10-10.50.2.254 comment="Pool Clientes Ativos"
+/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254 comment="Pool Inadimplentes"
+
+# 5. Configurar o Profile 'default' com IP Local e Pool (Corrige 'could not determine remote IP address')
+/ppp profile set default local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 comment="Profile Base PPPoE"
+
+# 6. Habilitar a API do RouterOS na porta 8728
 /ip service set api port=8728 address=0.0.0.0/0 disabled=no
 
-# 4. Criar Grupo e Usuário exclusivo para o sistema de gestão
+# 7. Criar Grupo e Usuário exclusivo para o sistema de gestão
 /user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
 /user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
 
-# 5. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
+# 8. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
 /ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
 
-# 6. Criar Pool e Profile de Bloqueio por Inadimplência
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
+# 9. Criar Pool e Profile de Bloqueio por Inadimplência
 /ppp profile add name="${blockProfile || 'bloqueados'}" \\
     local-address=10.99.99.1 \\
     remote-address=pool-bloqueados \\
@@ -1510,10 +1563,10 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
     dns-server=10.99.99.1 \\
     comment="Corte por atraso"
 
-# 7. Criar Perfis de Velocidade dos seus Planos Ativos
-${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
+# 10. Criar Perfis de Velocidade dos seus Planos Ativos com Gateway e Pool
+${plans.map(p => `/ppp profile add name="${p.profileName}" local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
 
-# 8. Servidor PPPoE Rodando na BRIDGE (bridge-local) para atender todas as portas
+# 11. Servidor PPPoE Rodando na BRIDGE (bridge-local) para atender todas as portas
 /interface pppoe-server server add \\
     service-name=pppoe-provedor \\
     interface=bridge-local \\
