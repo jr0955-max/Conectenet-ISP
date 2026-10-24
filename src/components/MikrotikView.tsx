@@ -75,10 +75,10 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
       host: config?.host || '192.168.1.120',
       port: config?.port || 8728,
       user: config?.user || 'admin_isp',
-      interfaceName: 'ether2',
+      interfaceName: 'bridge-local',
       defaultProfile: config?.defaultProfile || 'prof_15m_padrao',
       blockProfile: config?.blockProfile || 'prof_corte_bloqueado',
-      location: 'Sede Central (Porta 01 - WAN: 192.168.1.120)',
+      location: 'Sede Central (Porta 01 - WAN / Restante na Bridge: 192.168.1.120)',
       isDefault: true,
       status: config?.status || 'connected'
     }
@@ -91,7 +91,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   const [newSrvUser, setNewSrvUser] = useState('admin_isp');
   const [newSrvPass, setNewSrvPass] = useState('');
   const [newSrvLocation, setNewSrvLocation] = useState('');
-  const [newSrvInterface, setNewSrvInterface] = useState('ether2');
+  const [newSrvInterface, setNewSrvInterface] = useState('bridge-local');
   const [editingServer, setEditingServer] = useState<MikrotikServer | null>(null);
   const [serverTestResults, setServerTestResults] = useState<Record<string, any>>({});
   const [testingServerId, setTestingServerId] = useState<string | null>(null);
@@ -279,12 +279,23 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
 
   const fullRouterOSSetupScript = `# ==============================================================================
 # Script MikroTik RouterOS para Provedor de Internet & Telecom
-# Compatível com RouterOS v6.x e v7.x (CCR, RB4011, RB3011, hEX)
+# Topologia: Link WAN na Porta 01 (ether1) + Restante das portas na Bridge (bridge-local)
+# Compatível com RouterOS v6.x e v7.x (CCR, RB4011, RB3011, hEX, etc.)
 # ==============================================================================
 
-# 1. Criar Pool de IP e Perfil para Clientes Bloqueados / Corte
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
+# 1. Criar a Bridge Local e Agrupar as portas restantes (ether2, ether3, ether4, ether5)
+/interface bridge add name=bridge-local comment="Rede Local / Distribuicao de Clientes"
+/interface bridge port add bridge=bridge-local interface=ether2 comment="Porta Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether3 comment="Porta Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether4 comment="Porta Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether5 comment="Porta Clientes / Switch / OLT"
 
+# 2. Configurar a Porta 01 (ether1) como WAN (Link de Internet) e NAT Masquerade
+/ip dhcp-client add interface=ether1 disabled=no comment="Receber Link de Internet na Porta 01"
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
+
+# 3. Criar Pool de IP e Perfil para Clientes Bloqueados / Corte
+/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
 /ppp profile add name="${blockProfile}" \\
     local-address=10.99.99.1 \\
     remote-address=pool-bloqueados \\
@@ -292,26 +303,27 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
     dns-server=10.99.99.1 \\
     comment="Perfil de Inadimplentes com redirecionamento de aviso"
 
-# 2. Criar Perfis Normais de Velocidade (Planos de Acesso)
+# 4. Criar Perfis Normais de Velocidade (Planos de Acesso)
 /ppp profile add name=prof_15m_padrao rate-limit=5M/15M comment="Plano 15M Basico"
 /ppp profile add name=prof_30m_ultra rate-limit=10M/30M comment="Plano 30M Ultra"
 /ppp profile add name=prof_60m_plus rate-limit=20M/60M comment="Plano 60M Plus"
 /ppp profile add name=prof_150m_fibra rate-limit=50M/150M comment="Fibra FTTH 150M"
+/ppp profile add name=prof_300m_corp rate-limit=100M/300M comment="Fibra 300M Gamer"
 
-# 3. Habilitar Servidor PPPoE na Interface dos POPs / Distribuição
+# 5. Habilitar Servidor PPPoE Rodando na BRIDGE (bridge-local)
 /interface pppoe-server server add \\
     service-name=pppoe-provedor \\
-    interface=ether2-LAN-POPS \\
+    interface=bridge-local \\
     default-profile=default \\
-    authentication=chap,pap \\
+    authentication=chap,pap,mschap2 \\
     one-session-per-host=yes \\
     disabled=no
 
-# 4. Habilitar API Socket do MikroTik (Porta 8728)
+# 6. Habilitar API Socket do MikroTik (Porta 8728) sem restricao de IP
 /ip service enable api
 /ip service set api port=8728 address=0.0.0.0/0
 
-# 5. Criar usuario exclusivo para o AgroISP Pro
+# 7. Criar usuario exclusivo para o Sistema
 /user group add name=isp-api-group policy=read,write,test,api,!ftp,!reboot
 /user add name="${user}" group=isp-api-group password="SUA_SENHA_AQUI" comment="AgroISP Billing API"
 `;
@@ -1422,28 +1434,39 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
               <button
                 onClick={() => {
                   const ether1Script = `# ==============================================================================
-# SCRIPT DE BANCA MIKROTIK - AGROISP PRO (PORTA 01 ETHER1)
+# SCRIPT DE BANCADA MIKROTIK - TOPOLOGIA: PORTA 1 WAN + RESTANTE NA BRIDGE
 # ==============================================================================
 
-# 1. Habilitar a API do RouterOS na porta 8728 para o sistema
+# 1. Criar a Bridge Local e Agrupar as portas restantes (ether2, ether3, ether4, ether5)
+/interface bridge add name=bridge-local comment="Rede Local / Distribuicao de Clientes"
+/interface bridge port add bridge=bridge-local interface=ether2 comment="Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether3 comment="Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether4 comment="Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether5 comment="Clientes / Switch / OLT"
+
+# 2. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
+/ip dhcp-client add interface=ether1 disabled=no comment="Receber Link na Porta 01"
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
+
+# 3. Habilitar a API do RouterOS na porta 8728 para o sistema
 /ip service set api port=8728 address=0.0.0.0/0 disabled=no
 
-# 2. Criar Grupo e Usuario exclusivo do sistema
+# 4. Criar Grupo e Usuario exclusivo do sistema
 /user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
 /user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
 
-# 3. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
+# 5. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
 /ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
 
-# 4. Criar Pool e Profile de Bloqueio por Inadimplencia
+# 6. Criar Pool e Profile de Bloqueio por Inadimplencia
 /ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
 /ppp profile add name="${blockProfile || 'bloqueados'}" local-address=10.99.99.1 remote-address=pool-bloqueados rate-limit=128k/128k comment="Corte por atraso"
 
-# 5. Criar Perfis de Velocidade dos seus Planos
+# 7. Criar Perfis de Velocidade dos seus Planos
 ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
 
-# 6. Servidor PPPoE (interface ether2 para distribuicao aos clientes)
-/interface pppoe-server server add service-name=pppoe-provedor interface=ether2 default-profile=default disabled=no
+# 8. Servidor PPPoE Rodando na BRIDGE (bridge-local)
+/interface pppoe-server server add service-name=pppoe-provedor interface=bridge-local default-profile=default authentication=chap,pap,mschap2 one-session-per-host=yes disabled=no
 `;
                   navigator.clipboard.writeText(ether1Script);
                   setCopiedBancadaScript(true);
@@ -1457,17 +1480,28 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
             </div>
 
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-emerald-400 overflow-x-auto whitespace-pre leading-relaxed select-all">
-{`# 1. Habilitar a API do RouterOS na porta 8728
+{`# 1. Criar a Bridge Local e Agrupar as portas restantes (ether2 a ether5)
+/interface bridge add name=bridge-local comment="Rede Local / Distribuicao de Clientes"
+/interface bridge port add bridge=bridge-local interface=ether2 comment="Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether3 comment="Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether4 comment="Clientes / Switch / OLT"
+/interface bridge port add bridge=bridge-local interface=ether5 comment="Clientes / Switch / OLT"
+
+# 2. Configurar a Porta 01 (ether1) como WAN e Ativar NAT Masquerade
+/ip dhcp-client add interface=ether1 disabled=no comment="Receber Link na Porta 01"
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
+
+# 3. Habilitar a API do RouterOS na porta 8728
 /ip service set api port=8728 address=0.0.0.0/0 disabled=no
 
-# 2. Criar Grupo e Usuário exclusivo para o sistema de gestão
+# 4. Criar Grupo e Usuário exclusivo para o sistema de gestão
 /user group add name=isp-api policy=read,write,test,api,!ftp,!reboot,!policy,!sensitive
 /user add name="${user || 'admin_isp'}" group=isp-api password="${password || 'SuaSenhaForte123'}" comment="API Proxmox"
 
-# 3. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
+# 5. Liberar entrada na Porta 01 (ether1) para a porta 8728 no Firewall
 /ip firewall filter add chain=input in-interface=ether1 protocol=tcp dst-port=8728 action=accept comment="API Porta 01 ether1" place-before=0
 
-# 4. Criar Pool e Profile de Bloqueio por Inadimplência
+# 6. Criar Pool e Profile de Bloqueio por Inadimplência
 /ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254
 /ppp profile add name="${blockProfile || 'bloqueados'}" \\
     local-address=10.99.99.1 \\
@@ -1476,13 +1510,13 @@ ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speed
     dns-server=10.99.99.1 \\
     comment="Corte por atraso"
 
-# 5. Criar Perfis de Velocidade dos seus Planos Ativos
+# 7. Criar Perfis de Velocidade dos seus Planos Ativos
 ${plans.map(p => `/ppp profile add name="${p.profileName}" rate-limit="${p.speedUp}M/${p.speedDown}M" comment="${p.name}"`).join('\n')}
 
-# 6. Servidor PPPoE (interface ether2 para clientes)
+# 8. Servidor PPPoE Rodando na BRIDGE (bridge-local) para atender todas as portas
 /interface pppoe-server server add \\
     service-name=pppoe-provedor \\
-    interface=ether2 \\
+    interface=bridge-local \\
     default-profile=default \\
     authentication=chap,pap,mschap2 \\
     one-session-per-host=yes \\
