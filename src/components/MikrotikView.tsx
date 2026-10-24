@@ -5,7 +5,6 @@ import {
   Activity, 
   PowerOff, 
   RefreshCw, 
-  Terminal, 
   Settings, 
   CheckCircle2, 
   AlertTriangle, 
@@ -16,7 +15,6 @@ import {
   Check, 
   Wifi, 
   ArrowUpDown,
-  Send,
   Zap,
   Plus,
   Trash2,
@@ -62,8 +60,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   onTestConnection,
   onRefresh
 }) => {
-  const [subTab, setSubTab] = useState<'servers' | 'wizard' | 'backups' | 'active' | 'secrets' | 'terminal'>('servers');
-  const [copiedScript, setCopiedScript] = useState(false);
+  const [subTab, setSubTab] = useState<'servers' | 'wizard' | 'backups' | 'active' | 'secrets'>('servers');
 
   const effectiveServers: MikrotikServer[] = servers && servers.length > 0 ? servers : [
     {
@@ -217,117 +214,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
   const [blockProfile, setBlockProfile] = useState(config?.blockProfile || 'bloqueados');
   const [defaultProfile, setDefaultProfile] = useState(config?.defaultProfile || 'default');
 
-  // Terminal state
-  const [cliCommand, setCliCommand] = useState('/ppp active print');
-  const [cliOutput, setCliOutput] = useState<string>(`[admin_isp@MikroTik-CCR1009] > /system resource print
-                   uptime: 42d18h33m
-                  version: 7.14.3 (stable)
-               build-time: 2026-02-10 14:22:01
-              free-memory: 942.8MiB
-             total-memory: 1024.0MiB
-                      cpu: tilegx
-                cpu-count: 9
-            cpu-frequency: 1000MHz
-                 cpu-load: 8%
-           free-hdd-space: 112.5MiB
-          total-hdd-space: 128.0MiB
-  write-sect-since-reboot: 184201
-         write-sect-total: 512094
-               board-name: CCR1009-7G-1C-1S+
-                 platform: MikroTik
-[admin_isp@MikroTik-CCR1009] >`);
 
-  const handleRunCommand = () => {
-    let response = '';
-    const clean = cliCommand.trim();
-
-    if (clean.includes('/ppp active print')) {
-      response = `Flags: R - RADIUS\n #   NAME             SERVICE  CALLER-ID         ADDRESS         UPTIME   ENCODING\n` +
-        activeSessions.map((s, idx) => ` ${idx}   ${s.username.padEnd(16)} pppoe    ${s.callerId} ${s.ipAddress.padEnd(15)} ${s.uptime}`).join('\n');
-    } else if (clean.includes('/ppp secret print')) {
-      response = `Flags: X - DISABLED\n #   NAME             SERVICE  CALLER-ID  PASSWORD    PROFILE        REMOTE-ADDRESS\n` +
-        clients.map((c, idx) => {
-          const plan = plans.find(p => p.id === c.planId);
-          const prof = c.status === 'blocked' ? blockProfile : (plan?.profileName || defaultProfile);
-          const flag = c.status === 'blocked' ? 'X' : ' ';
-          return ` ${idx} ${flag} ${c.pppoeUsername.padEnd(16)} pppoe               ********    ${prof.padEnd(14)} ${c.ipAddress || 'dynamic'}`;
-        }).join('\n');
-    } else if (clean.includes('/interface print')) {
-      response = ` #   NAME                     TYPE       ACTUAL-MTU   L2MTU  MAX-L2MTU  MAC-ADDRESS\n 0 R ether1-WAN               ether            1500    1580       4076  48:8F:5A:01:02:03\n 1 R ether2-LAN-POPS          ether            1500    1580       4076  48:8F:5A:01:02:04\n 2 R sfp-plus1-OLT-FIBRA      ether            1500    1580       4076  48:8F:5A:01:02:05`;
-    } else {
-      response = `!done\nComando aceito pelo RouterOS v7.14: "${clean}"\nRegistro de execução persistido no log de auditoria.`;
-    }
-
-    setCliOutput(prev => `${prev}\n[admin_isp@MikroTik-CCR1009] > ${cliCommand}\n${response}\n[admin_isp@MikroTik-CCR1009] >`);
-    setCliCommand('');
-  };
-
-
-  const fullRouterOSSetupScript = `# ==============================================================================
-# Script MikroTik RouterOS para Provedor de Internet & Telecom
-# Topologia: Link WAN na Porta 01 (ether1) + Restante das portas na Bridge (bridge-local)
-# Compatível com RouterOS v6.x e v7.x (CCR, RB4011, RB3011, hEX, etc.)
-# ==============================================================================
-
-# 1. Criar a Bridge Local e Agrupar as portas restantes (ether2, ether3, ether4, ether5)
-/interface bridge add name=bridge-local comment="Rede Local / Distribuicao de Clientes"
-/interface bridge port add bridge=bridge-local interface=ether2 comment="Porta Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether3 comment="Porta Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether4 comment="Porta Clientes / Switch / OLT"
-/interface bridge port add bridge=bridge-local interface=ether5 comment="Porta Clientes / Switch / OLT"
-
-# 2. Atribuir IP do Gateway PPPoE na Bridge Local
-/ip address add address=10.50.2.1/24 interface=bridge-local comment="Gateway PPPoE Local"
-
-# 3. Configurar a Porta 01 (ether1) como WAN (Link de Internet) e NAT Masquerade
-/ip dhcp-client add interface=ether1 disabled=no comment="Receber Link de Internet na Porta 01"
-/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Saida Internet WAN"
-
-# 4. Criar Pool de IPs para Clientes PPPoE e Pool de Bloqueados
-/ip pool add name=pool-pppoe ranges=10.50.2.10-10.50.2.254 comment="Pool Clientes Ativos"
-/ip pool add name=pool-bloqueados ranges=10.99.99.2-10.99.99.254 comment="Pool Inadimplentes"
-
-# 5. Configurar o Profile 'default' com IP Local e Pool (Corrige 'could not determine remote IP address')
-/ppp profile set default local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 comment="Profile Base PPPoE"
-
-# 6. Perfil de Bloqueio por Inadimplência
-/ppp profile add name="${blockProfile}" \\
-    local-address=10.99.99.1 \\
-    remote-address=pool-bloqueados \\
-    rate-limit=128k/128k \\
-    dns-server=10.99.99.1 \\
-    comment="Perfil de Inadimplentes com redirecionamento de aviso"
-
-# 7. Criar Perfis Normais de Velocidade (Planos de Acesso com Gateway e Pool)
-/ppp profile add name=prof_15m_padrao local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=5M/15M comment="Plano 15M Basico"
-/ppp profile add name=prof_30m_ultra local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=10M/30M comment="Plano 30M Ultra"
-/ppp profile add name=prof_60m_plus local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=20M/60M comment="Plano 60M Plus"
-/ppp profile add name=prof_150m_fibra local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=50M/150M comment="Fibra FTTH 150M"
-/ppp profile add name=prof_300m_corp local-address=10.50.2.1 remote-address=pool-pppoe dns-server=1.1.1.1,8.8.8.8 rate-limit=100M/300M comment="Fibra 300M Gamer"
-
-# 8. Habilitar Servidor PPPoE Rodando na BRIDGE (bridge-local)
-/interface pppoe-server server add \\
-    service-name=pppoe-provedor \\
-    interface=bridge-local \\
-    default-profile=default \\
-    authentication=chap,pap,mschap2 \\
-    one-session-per-host=yes \\
-    disabled=no
-
-# 9. Habilitar API Socket do MikroTik (Porta 8728) sem restricao de IP
-/ip service enable api
-/ip service set api port=8728 address=0.0.0.0/0
-
-# 7. Criar usuario exclusivo para o Sistema
-/user group add name=isp-api-group policy=read,write,test,api,!ftp,!reboot
-/user add name="${user}" group=isp-api-group password="SUA_SENHA_AQUI" comment="AgroISP Billing API"
-`;
-
-  const copyScript = () => {
-    navigator.clipboard.writeText(fullRouterOSSetupScript);
-    setCopiedScript(true);
-    setTimeout(() => setCopiedScript(false), 2000);
-  };
 
   return (
     <div className="space-y-6">
@@ -406,17 +293,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
             </span>
           </button>
 
-          <button
-            onClick={() => setSubTab('terminal')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
-              subTab === 'terminal'
-                ? 'bg-emerald-600 text-white shadow'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            <span>Terminal CLI & Script</span>
-          </button>
+
         </div>
 
         <button
@@ -1150,78 +1027,7 @@ export const MikrotikView: React.FC<MikrotikViewProps> = ({
         </div>
       )}
 
-      {/* TAB 3: CLI TERMINAL & SETUP SCRIPT */}
-      {subTab === 'terminal' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Terminal Emulator */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-lg flex flex-col h-[520px]">
-            <div className="p-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Terminal className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-mono font-bold text-white">RouterOS Terminal Console (API 8728)</span>
-              </div>
-              <div className="flex space-x-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500/80"></span>
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></span>
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500/80"></span>
-              </div>
-            </div>
 
-            {/* Output */}
-            <div className="flex-1 p-4 font-mono text-[11px] leading-relaxed text-emerald-400 bg-slate-950 overflow-y-auto whitespace-pre-wrap select-text">
-              {cliOutput}
-            </div>
-
-            {/* Command Input */}
-            <div className="p-3 bg-slate-900/90 border-t border-slate-800 flex items-center space-x-2">
-              <span className="text-xs font-mono text-emerald-400 font-bold">&gt;</span>
-              <input
-                type="text"
-                placeholder="Ex: /ppp active print ou /ppp secret print ou /interface print"
-                value={cliCommand}
-                onChange={(e) => setCliCommand(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleRunCommand()}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-              />
-              <button
-                onClick={handleRunCommand}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center space-x-1 transition"
-              >
-                <Send className="w-3 h-3" />
-                <span>Executar</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Setup Script for RouterOS */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm h-[520px]">
-            <div>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div>
-                  <h3 className="text-sm font-bold text-white">Script de Provisionamento MikroTik</h3>
-                  <p className="text-xs text-slate-400">Copie e cole diretamente no Terminal do Winbox</p>
-                </div>
-                <button
-                  onClick={copyScript}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition"
-                >
-                  {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedScript ? 'Copiado!' : 'Copiar Script'}</span>
-                </button>
-              </div>
-
-              <div className="mt-4 bg-slate-950 rounded-lg p-3 border border-slate-800/80 font-mono text-[11px] text-slate-300 h-[360px] overflow-y-auto whitespace-pre">
-                {fullRouterOSSetupScript}
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-              <span>Porta padrão: 8728 (API) ou 8729 (API-SSL)</span>
-              <span className="text-emerald-400 font-medium">Testado em v6 e v7</span>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
