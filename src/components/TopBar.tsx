@@ -23,9 +23,11 @@ import {
   FileText,
   Users,
   Gauge,
-  Building2
+  Building2,
+  ShieldAlert,
+  AlertTriangle
 } from 'lucide-react';
-import { MikrotikConfig, SystemStats, User, CompanySettings } from '../types/index.js';
+import { MikrotikConfig, SystemStats, User, CompanySettings, Tower } from '../types/index.js';
 import { ThemeToggle } from './ThemeToggle.js';
 
 
@@ -45,6 +47,7 @@ interface TopBarProps {
   onLogout: () => void;
   onOpenLogin: () => void;
   companySettings?: CompanySettings;
+  towers?: Tower[];
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -62,7 +65,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   currentUser,
   onLogout,
   onOpenLogin,
-  companySettings
+  companySettings,
+  towers
 }) => {
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -225,6 +229,31 @@ export const TopBar: React.FC<TopBarProps> = ({
             {mikrotikConfig?.host || '192.168.88.1'}
           </span>
         </div>
+
+        {/* POPs Offline / Warning Alert Pill */}
+        {towers && towers.some(t => t.status === 'offline') ? (
+          <div 
+            onClick={() => onNavigateTab('towers')}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-red-600/25 border border-red-500/50 text-red-200 text-xs cursor-pointer hover:bg-red-600/35 transition animate-pulse shadow-sm shadow-red-950"
+            title="Atenção: Há POP(s) / Torres sem resposta de ping! Clique para abrir e diagnosticar."
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+            <span className="font-bold text-[11px]">
+              {towers.filter(t => t.status === 'offline').length} {towers.filter(t => t.status === 'offline').length === 1 ? 'POP Offline!' : 'POPs Offline!'}
+            </span>
+          </div>
+        ) : towers && towers.some(t => t.status === 'warning') ? (
+          <div 
+            onClick={() => onNavigateTab('towers')}
+            className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs cursor-pointer hover:bg-amber-500/30 transition"
+            title="Aviso: Há POP(s) com oscilação de latência ou perda parcial."
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-semibold text-[11px]">
+              {towers.filter(t => t.status === 'warning').length} POP Oscilando
+            </span>
+          </div>
+        ) : null}
 
         {/* Quick Webhook Trigger */}
         <button

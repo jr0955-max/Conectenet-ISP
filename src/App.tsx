@@ -692,6 +692,7 @@ export default function App() {
           setIsOrderModalOpen(true);
         }}
         plansCount={plans.length}
+        towers={towers}
       />
 
       {/* Main App Container (Shifted right on desktop by sidebar width) */}
@@ -722,6 +723,7 @@ export default function App() {
           onLogout={handleLogout}
           onOpenLogin={() => setIsLoginModalOpen(true)}
           companySettings={companySettings}
+          towers={towers}
         />
 
         {/* Main Body Content */}
@@ -883,6 +885,7 @@ export default function App() {
               onAddTower={handleAddTower}
               onEditTower={handleEditTower}
               onDeleteTower={handleDeleteTower}
+              onRefresh={loadAllData}
             />
           )}
 

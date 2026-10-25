@@ -34,7 +34,7 @@ import {
   Moon,
   Palette
 } from 'lucide-react';
-import { MikrotikConfig, SystemStats, User, CompanySettings } from '../types/index.js';
+import { MikrotikConfig, SystemStats, User, CompanySettings, Tower } from '../types/index.js';
 import { useTheme } from '../context/ThemeContext.js';
 
 
@@ -54,6 +54,7 @@ interface SidebarProps {
   onOpenNewClient: () => void;
   onOpenNewOrder?: () => void;
   plansCount?: number;
+  towers?: Tower[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -71,7 +72,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenLogin,
   onOpenNewClient,
   onOpenNewOrder,
-  plansCount
+  plansCount,
+  towers
 }) => {
   const isTecnico = currentUser?.role === 'tecnico';
   const isFinanceiro = currentUser?.role === 'financeiro';
@@ -263,9 +265,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }`}
                   >
                     <span>Torres & POPs Rurais</span>
-                    <span className="px-1.5 py-0.2 text-[10px] font-mono rounded bg-slate-800 text-slate-300">
-                      {stats?.totalTowers || '4'}
-                    </span>
+                    {towers && towers.some(t => t.status === 'offline') ? (
+                      <span className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse">
+                        {towers.filter(t => t.status === 'offline').length} Inativo
+                      </span>
+                    ) : towers && towers.some(t => t.status === 'warning') ? (
+                      <span className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        {towers.filter(t => t.status === 'warning').length} Alerta
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 text-[10px] font-mono rounded bg-slate-800 text-slate-300">
+                        {stats?.totalTowers || towers?.length || '4'}
+                      </span>
+                    )}
                   </button>
                 </div>
               )}

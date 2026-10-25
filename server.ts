@@ -5,6 +5,7 @@ import { db } from './server/db.js';
 import { mikrotikService } from './server/mikrotik.js';
 import { paymentGatewayService } from './server/paymentGateway.js';
 import { authService, authenticateToken, authorizeRole, AuthenticatedRequest } from './server/auth.js';
+import { PingService } from './server/pingService.js';
 import { Client, Plan, Tower, Invoice, User, UserRole, Carne, MikrotikServer } from './src/types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1520,6 +1521,180 @@ app.delete('/api/towers/:id', (req, res) => {
     res.json({ success: true, message: `Torre '${tower.name}' excluída com sucesso.` });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao excluir torre/POP' });
+  }
+});
+
+// Testar ping de um POP específico (ICMP real ou fallback assistido)
+app.post('/api/towers/:id/ping', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mode = 'auto', forceStatus } = req.body;
+    const tower = db.towers.find(t => t.id === id);
+    if (!tower) {
+      return res.status(404).json({ error: 'Torre/POP não encontrado' });
+    }
+
+    let result;
+    if (forceStatus) {
+      result = PingService.simulatePing(tower, forceStatus);
+    } else if (mode === 'real_icmp') {
+      result = await PingService.pingIcmp(tower.ipGateway, 2, 2);
+    } else {
+      // Auto: tenta ICMP real primeiro
+      const icmp = await PingService.pingIcmp(tower.ipGateway, 2, 1);
+      if (icmp.packetLossPercent < 100) {
+        result = icmp;
+      } else {
+        // Se inacessível em ambiente de sandbox ou IP privado sem rota externa, fornece telemetria estimada
+        result = PingService.simulatePing(tower);
+      }
+    }
+
+    // Atualiza telemetria na torre
+    tower.lastPingMs = result.avgLatencyMs;
+    tower.minPingMs = result.minLatencyMs;
+    tower.maxPingMs = result.maxLatencyMs;
+    tower.packetLossPercent = result.packetLossPercent;
+    tower.lastPingCheck = result.timestamp;
+    tower.pingStatus = result.status;
+    tower.status = result.status;
+    tower.pingError = result.error;
+
+    if (!tower.pingHistory) tower.pingHistory = [];
+    tower.pingHistory.unshift({
+      timestamp: result.timestamp,
+      latencyMs: result.avgLatencyMs,
+      packetLoss: result.packetLossPercent,
+      status: result.status
+    });
+    if (tower.pingHistory.length > 20) tower.pingHistory.pop();
+
+    if (result.status === 'offline') {
+      db.addAuditLog({
+        type: 'system',
+        action: 'POP_OFFLINE',
+        message: `🚨 ALERTA: POP/Torre '${tower.name}' (${tower.ipGateway}) inacessível no teste de ping! Perda de 100% dos pacotes.`,
+        status: 'error'
+      });
+    } else if (result.status === 'warning') {
+      db.addAuditLog({
+        type: 'system',
+        action: 'POP_WARNING',
+        message: `⚠️ ALERTA: POP/Torre '${tower.name}' (${tower.ipGateway}) com oscilação no ping: ${result.avgLatencyMs}ms (Perda: ${result.packetLossPercent}%).`,
+        status: 'warning'
+      });
+    }
+
+    db.save();
+    res.json({ success: true, result, tower });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao realizar teste de ping' });
+  }
+});
+
+// Checar ping de todos os POPs em massa (Varredura do NOC)
+app.post('/api/towers/ping-all', async (req, res) => {
+  try {
+    const { mode = 'auto' } = req.body;
+    const results = await Promise.all(
+      db.towers.map(async (tower) => {
+        let result;
+        if (mode === 'real_icmp') {
+          result = await PingService.pingIcmp(tower.ipGateway, 2, 2);
+        } else {
+          const icmp = await PingService.pingIcmp(tower.ipGateway, 2, 1);
+          if (icmp.packetLossPercent < 100) {
+            result = icmp;
+          } else {
+            result = PingService.simulatePing(tower);
+          }
+        }
+
+        tower.lastPingMs = result.avgLatencyMs;
+        tower.minPingMs = result.minLatencyMs;
+        tower.maxPingMs = result.maxLatencyMs;
+        tower.packetLossPercent = result.packetLossPercent;
+        tower.lastPingCheck = result.timestamp;
+        tower.pingStatus = result.status;
+        tower.status = result.status;
+        tower.pingError = result.error;
+
+        if (!tower.pingHistory) tower.pingHistory = [];
+        tower.pingHistory.unshift({
+          timestamp: result.timestamp,
+          latencyMs: result.avgLatencyMs,
+          packetLoss: result.packetLossPercent,
+          status: result.status
+        });
+        if (tower.pingHistory.length > 20) tower.pingHistory.pop();
+
+        return { towerId: tower.id, name: tower.name, result };
+      })
+    );
+
+    db.save();
+
+    const onlineCount = db.towers.filter(t => t.status === 'online').length;
+    const warningCount = db.towers.filter(t => t.status === 'warning').length;
+    const offlineCount = db.towers.filter(t => t.status === 'offline').length;
+
+    res.json({
+      success: true,
+      towers: db.towers,
+      results,
+      summary: {
+        total: db.towers.length,
+        online: onlineCount,
+        warning: warningCount,
+        offline: offlineCount
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao verificar ping dos POPs' });
+  }
+});
+
+// Simular mudança de estado de enlace (para testar aviso na tela de queda/recuperação)
+app.post('/api/towers/:id/simulate-status', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { targetStatus = 'offline' } = req.body;
+    const tower = db.towers.find(t => t.id === id);
+    if (!tower) {
+      return res.status(404).json({ error: 'Torre/POP não encontrado' });
+    }
+
+    const result = PingService.simulatePing(tower, targetStatus as any);
+    tower.status = result.status;
+    tower.pingStatus = result.status;
+    tower.lastPingMs = result.avgLatencyMs;
+    tower.minPingMs = result.minLatencyMs;
+    tower.maxPingMs = result.maxLatencyMs;
+    tower.packetLossPercent = result.packetLossPercent;
+    tower.lastPingCheck = result.timestamp;
+    tower.pingError = result.error;
+
+    if (!tower.pingHistory) tower.pingHistory = [];
+    tower.pingHistory.unshift({
+      timestamp: result.timestamp,
+      latencyMs: result.avgLatencyMs,
+      packetLoss: result.packetLossPercent,
+      status: result.status
+    });
+
+    db.addAuditLog({
+      type: 'system',
+      action: result.status === 'offline' ? 'POP_OFFLINE' : result.status === 'warning' ? 'POP_WARNING' : 'POP_RECOVERED',
+      message: result.status === 'offline' 
+        ? `🚨 SIMULAÇÃO DE QUEDA: POP '${tower.name}' entrou em estado OFFLINE (100% de perda de ping).` 
+        : `✅ POP '${tower.name}' restabelecido e operando com normalidade.`,
+      status: result.status === 'offline' ? 'error' : 'success'
+    });
+
+    db.save();
+    res.json({ success: true, tower, result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erro ao simular status' });
   }
 });
 

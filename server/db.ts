@@ -68,7 +68,13 @@ export const initialTowers: Tower[] = [
     activeClients: 0,
     status: 'online',
     coordinates: '-15.7892, -47.9255',
-    ipGateway: '10.50.1.1'
+    ipGateway: '10.50.1.1',
+    lastPingMs: 11.4,
+    minPingMs: 9.8,
+    maxPingMs: 14.2,
+    packetLossPercent: 0,
+    lastPingCheck: new Date().toISOString(),
+    pingStatus: 'online'
   },
   {
     id: 'tower-2',
@@ -79,7 +85,13 @@ export const initialTowers: Tower[] = [
     activeClients: 0,
     status: 'online',
     coordinates: '-15.8211, -47.8842',
-    ipGateway: '10.50.2.1'
+    ipGateway: '10.50.2.1',
+    lastPingMs: 18.2,
+    minPingMs: 15.1,
+    maxPingMs: 22.0,
+    packetLossPercent: 0,
+    lastPingCheck: new Date().toISOString(),
+    pingStatus: 'online'
   },
   {
     id: 'tower-3',
@@ -90,7 +102,13 @@ export const initialTowers: Tower[] = [
     activeClients: 0,
     status: 'online',
     coordinates: '-15.8540, -47.9620',
-    ipGateway: '10.50.3.1'
+    ipGateway: '10.50.3.1',
+    lastPingMs: 24.6,
+    minPingMs: 19.3,
+    maxPingMs: 29.8,
+    packetLossPercent: 0,
+    lastPingCheck: new Date().toISOString(),
+    pingStatus: 'online'
   },
   {
     id: 'tower-4',
@@ -101,7 +119,13 @@ export const initialTowers: Tower[] = [
     activeClients: 0,
     status: 'online',
     coordinates: '-15.7650, -47.9100',
-    ipGateway: '10.50.4.1'
+    ipGateway: '10.50.4.1',
+    lastPingMs: 2.8,
+    minPingMs: 1.9,
+    maxPingMs: 4.1,
+    packetLossPercent: 0,
+    lastPingCheck: new Date().toISOString(),
+    pingStatus: 'online'
   }
 ];
 

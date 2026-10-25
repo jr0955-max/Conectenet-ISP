@@ -59,6 +59,19 @@ export interface Tower {
   status: 'online' | 'warning' | 'offline';
   coordinates: string;
   ipGateway: string;
+  lastPingMs?: number;
+  minPingMs?: number;
+  maxPingMs?: number;
+  packetLossPercent?: number;
+  lastPingCheck?: string;
+  pingStatus?: 'online' | 'warning' | 'offline';
+  pingError?: string;
+  pingHistory?: {
+    timestamp: string;
+    latencyMs: number;
+    packetLoss: number;
+    status: 'online' | 'warning' | 'offline';
+  }[];
 }
 
 export interface Invoice {
